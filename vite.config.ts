@@ -1,0 +1,61 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'prompt',
+      includeAssets: ['icon.svg', 'icon-maskable.svg'],
+      manifest: {
+        name: 'Vector — voice cycling beacon',
+        short_name: 'Vector',
+        description: 'Голосовой навигатор-маяк «по часам» вместо градусов и стрелок.',
+        lang: 'ru',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0A0C0B',
+        theme_color: '#0A0C0B',
+        categories: ['navigation', 'travel'],
+        icons: [
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
+        navigateFallback: '/index.html',
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'fonts',
+              expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: ({ url }) =>
+              url.host === 'tile.openstreetmap.org' ||
+              url.host.endsWith('basemaps.cartocdn.com') ||
+              url.host === 'a.tile.opentopomap.org' ||
+              url.host === 'b.tile.opentopomap.org' ||
+              url.host === 'c.tile.opentopomap.org' ||
+              url.host === 'tile.opentopomap.org',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'map-tiles',
+              expiration: { maxEntries: 4096, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+  server: { host: true, port: 5173 },
+});

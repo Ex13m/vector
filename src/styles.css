@@ -1,0 +1,112 @@
+:root {
+  --bg: #0a0c0b;
+  --bg2: #111413;
+  --bg3: #181c1a;
+  --ink: #f2f0ea;
+  --ink-dim: #7a7e78;
+  --line: #1f2422;
+  --line2: #2a302d;
+  --target: #ff6b1a;
+  --target-ink: #1a0a00;
+  --ok: #48de94;
+  --warn: #ff5a3a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: inherit;
+  appearance: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+input,
+button {
+  outline: none;
+  -webkit-appearance: none;
+}
+
+input:focus-visible {
+  outline: 1px solid var(--target);
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes blinkColon {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(11, 13, 12, 0.6) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim) !important;
+  border-radius: 6px !important;
+  padding: 2px 6px !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--ink-dim) !important;
+}
+
+.maplibregl-canvas:focus {
+  outline: none;
+}

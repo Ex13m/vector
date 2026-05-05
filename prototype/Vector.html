@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Vector — voice cycling beacon</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0A0C0B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vector">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#0a0c0b; color:#eef0ec;
+    font-family:'Space Grotesk','Manrope',system-ui,sans-serif; min-height:100vh; }
+  * { box-sizing: border-box; }
+  @keyframes pulse {
+    0% { stroke-opacity: 1; transform: scale(1); }
+    100% { stroke-opacity: 0; transform: scale(1.15); }
+  }
+  @keyframes blinkColon {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .stage { display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:48px 24px 24px; gap:32px; flex-wrap:wrap; }
+  .frame-wrap { position: relative; }
+  .frame-label { position:absolute; top:-26px; left:0; right:0;
+    text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px;
+    letter-spacing:0.2em; color:#4d524f; text-transform:uppercase; }
+  .nav-pills { position:fixed; top:14px; left:50%; transform:translateX(-50%);
+    z-index:50; display:flex; gap:4px; padding:5px;
+    background:rgba(11,13,12,0.85); border:1px solid #1c211f; border-radius:999px;
+    backdrop-filter:blur(8px); }
+  .nav-pills button { appearance:none; border:none; background:transparent;
+    color:#8a918c; font-family:'JetBrains Mono',monospace; font-size:10px;
+    letter-spacing:0.1em; padding:7px 13px; border-radius:999px; cursor:pointer; }
+  .nav-pills button.active { background:#ff6b1a; color:#1a0a00; font-weight:600; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="android-frame.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+  <script type="text/babel" src="screens.jsx"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "lang": "en",
+      "dialStyle": "map",
+      "simSpeed": 3,
+      "screen": "ride",
+      "layer": "std"
+    }/*EDITMODE-END*/;
+
+    const SAMPLE_SAVED = [
+      { name:'Дача · Подмосковье', coords:'55.7°N · 37.4°E', cacheMB:18.2 },
+      { name:'Парк Сокольники', coords:'55.8°N · 37.7°E', cacheMB:6.4 },
+    ];
+    const SAMPLE_TRIPS = [
+      { name:'Утренняя · 5 мая', distance:'12.4 km', time:'42:18' },
+    ];
+
+    function App() {
+      const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+      const [screen, setScreen] = useState(t.screen || 'pick');
+      const [showSettings, setShowSettings] = useState(false);
+      const [target, setTarget] = useState(null);
+      const [reverse, setReverse] = useState(false);
+      const [savedTargets, setSavedTargets] = useState(SAMPLE_SAVED);
+      const [trips, setTrips] = useState(SAMPLE_TRIPS);
+      const [settings, setSettings] = useState({
+        intervalSec: 900,
+        units: 'metric',
+        haptics: true,
+      });
+
+      useEffect(() => { if (t.screen && t.screen !== screen) setScreen(t.screen); }, [t.screen]);
+      const goto = (s) => { setScreen(s); setTweak('screen', s); };
+
+      const saveTrip = (tr) => {
+        const fmt = (s)=>{const m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;};
+        const km = (tr.distM||0)/1000;
+        const distance = km<1 ? `${Math.round(tr.distM||0)} m` : `${km.toFixed(2)} km`;
+        const avgKmh = tr.time>0 ? ((tr.distM/1000)/(tr.time/3600)).toFixed(1) : null;
+        setTrips([{
+          name: tr.name || 'Поездка',
+          distance,
+          time: fmt(tr.time||0),
+          avgKmh,
+          finished: !!tr.finished,
+          reverse: !!tr.reverse,
+        }, ...trips]);
+      };
+
+      let body;
+      if (screen === 'pick') {
+        body = <PickScreen lang={t.lang}
+                  layer={t.layer} onLayer={(l) => setTweak('layer', l)}
+                  savedTargets={savedTargets} savedTrips={trips}
+                  onLoadFav={(it) => { setTarget({x:200,y:200}); setReverse(false); goto('ride'); }}
+                  onResumeTrip={(tr) => { setTarget({x:200,y:200}); setReverse(!!tr.reverse); goto('ride'); }}
+                  onConfirm={({ target: tg, reverse: rv }) => { setTarget(tg); setReverse(!!rv); goto('cache'); }} />;
+      } else if (screen === 'cache') {
+        body = <CacheScreen lang={t.lang} layer={t.layer} target={target}
+                  onDone={() => goto('ride')} />;
+      } else {
+        body = <RideScreen lang={t.lang} settings={settings} layer={t.layer}
+                  simSpeed={t.simSpeed} dialStyle={t.dialStyle} reverse={reverse}
+                  onDialStyle={(v)=>setTweak('dialStyle', v)}
+                  onLayer={(l)=>setTweak('layer', l)}
+                  onExit={() => goto('pick')}
+                  onSettings={() => setShowSettings(true)}
+                  onSaveTrip={saveTrip} />;
+      }
+
+      return (
+        <div className="stage" data-screen-label={`Vector — ${screen}`}>
+          <div className="nav-pills">
+            <button className={screen==='pick'?'active':''} onClick={() => goto('pick')}>01 ЦЕЛЬ</button>
+            <button className={screen==='cache'?'active':''} onClick={() => goto('cache')}>02 КАРТА</button>
+            <button className={screen==='ride'?'active':''} onClick={() => goto('ride')}>03 ПУТЬ</button>
+          </div>
+
+          <div className="frame-wrap">
+            <div className="frame-label">VECTOR · ANDROID</div>
+            <AndroidDevice width={412} height={780} dark>
+              <div style={{ position: 'relative', height: '100%' }}>
+                {body}
+                {showSettings && screen === 'ride' && (
+                  <SettingsSheet lang={t.lang} settings={settings}
+                    setSettings={setSettings}
+                    onLang={(l) => setTweak('lang', l)}
+                    onClose={() => setShowSettings(false)} />
+                )}
+              </div>
+            </AndroidDevice>
+          </div>
+
+          <TweaksPanel title="Vector — Tweaks">
+            <TweakSection label="Демо">
+              <TweakSelect label="Экран" value={t.screen}
+                options={[
+                  {value:'pick',label:'01 — Цель'},
+                  {value:'cache',label:'02 — Карта офлайн'},
+                  {value:'ride',label:'03 — В пути'},
+                ]}
+                onChange={(v) => setTweak('screen', v)} />
+              <TweakSlider label="Скорость симуляции ×" value={t.simSpeed}
+                min={1} max={10} step={1}
+                onChange={(v) => setTweak('simSpeed', v)} />
+            </TweakSection>
+            <TweakSection label="Голос и UI">
+              <TweakRadio label="Язык" value={t.lang}
+                options={[
+                  {value:'ru',label:'RU'},
+                  {value:'en',label:'EN'},
+                  {value:'de',label:'DE'},
+                ]}
+                onChange={(v) => setTweak('lang', v)} />
+              <TweakSelect label="Стиль экрана пути" value={t.dialStyle}
+                options={[
+                  {value:'dial',label:'Циферблат'},
+                  {value:'numeric',label:'Только цифры'},
+                  {value:'map',label:'Карта + часы'},
+                ]}
+                onChange={(v) => setTweak('dialStyle', v)} />
+              <TweakSelect label="Слой карты" value={t.layer}
+                options={[
+                  {value:'std',label:'Карта'},
+                  {value:'sat',label:'Спутник'},
+                  {value:'topo',label:'Топо'},
+                  {value:'tour',label:'Туристическая'},
+                ]}
+                onChange={(v) => setTweak('layer', v)} />
+            </TweakSection>
+          </TweaksPanel>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                showUpdateToast(() => { sw.postMessage('SKIP_WAITING'); });
+              }
+            });
+          });
+        }).catch(() => {});
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing) return;
+          refreshing = true;
+          location.reload();
+        });
+      });
+    }
+
+    function showUpdateToast(onApply) {
+      const t = document.createElement('div');
+      t.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;'
+        + 'display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:12px;'
+        + "background:rgba(11,13,12,0.94);border:1px solid #2A302D;color:#F2F0EA;"
+        + "font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;"
+        + 'letter-spacing:0.08em;backdrop-filter:blur(8px);box-shadow:0 4px 14px rgba(0,0,0,0.4);';
+      t.innerHTML = '<span>Доступно обновление</span>'
+        + '<button style="appearance:none;border:none;background:#FF6B1A;color:#1A0A00;'
+        + 'font-weight:700;font-family:inherit;font-size:11px;letter-spacing:0.08em;'
+        + 'padding:6px 12px;border-radius:8px;cursor:pointer">ОБНОВИТЬ</button>';
+      t.querySelector('button').onclick = onApply;
+      document.body.appendChild(t);
+    }
+  </script>
+</body>
+</html>
