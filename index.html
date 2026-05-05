@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>Vector — voice cycling beacon</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0A0C0B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vector">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -189,6 +196,45 @@
     }
 
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                showUpdateToast(() => { sw.postMessage('SKIP_WAITING'); });
+              }
+            });
+          });
+        }).catch(() => {});
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing) return;
+          refreshing = true;
+          location.reload();
+        });
+      });
+    }
+
+    function showUpdateToast(onApply) {
+      const t = document.createElement('div');
+      t.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;'
+        + 'display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:12px;'
+        + "background:rgba(11,13,12,0.94);border:1px solid #2A302D;color:#F2F0EA;"
+        + "font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;"
+        + 'letter-spacing:0.08em;backdrop-filter:blur(8px);box-shadow:0 4px 14px rgba(0,0,0,0.4);';
+      t.innerHTML = '<span>Доступно обновление</span>'
+        + '<button style="appearance:none;border:none;background:#FF6B1A;color:#1A0A00;'
+        + 'font-weight:700;font-family:inherit;font-size:11px;letter-spacing:0.08em;'
+        + 'padding:6px 12px;border-radius:8px;cursor:pointer">ОБНОВИТЬ</button>';
+      t.querySelector('button').onclick = onApply;
+      document.body.appendChild(t);
+    }
   </script>
 </body>
 </html>
