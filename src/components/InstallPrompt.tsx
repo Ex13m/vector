@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { F_DISP, F_MONO } from '../theme';
-import { t, type Lang } from '../i18n';
+import { C, F_DISP, F_MONO } from '../theme';
 
 type BIPEvt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 
@@ -15,7 +14,9 @@ function isStandalone(): boolean {
 }
 
 function isIos(): boolean {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !('standalone' in navigator && (navigator as Navigator & { standalone?: boolean }).standalone);
+  const ua = navigator.userAgent;
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  return isIOS && !(navigator as Navigator & { standalone?: boolean }).standalone;
 }
 
 function snoozed(): boolean {
@@ -24,7 +25,7 @@ function snoozed(): boolean {
   return Date.now() - Number(v) < SNOOZE_MS;
 }
 
-export default function InstallPrompt({ lang }: { lang: Lang }) {
+export default function InstallPrompt() {
   const [evt, setEvt] = useState<BIPEvt | null>(null);
   const [showIos, setShowIos] = useState(false);
 
@@ -69,7 +70,7 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
         bottom: 'calc(12px + env(safe-area-inset-bottom))',
         zIndex: 9000,
         background: 'rgba(11,13,12,0.96)',
-        border: '1px solid #2A302D',
+        border: `1px solid ${C.line2}`,
         borderRadius: 14,
         padding: 14,
         backdropFilter: 'blur(10px)',
@@ -77,11 +78,11 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
         animation: 'fadeUp 280ms ease',
       }}
     >
-      <div style={{ fontFamily: F_DISP, fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-        {t(lang, 'install.title')}
+      <div style={{ fontFamily: F_DISP, fontSize: 16, fontWeight: 600, marginBottom: 4, color: C.ink }}>
+        Установить Vector
       </div>
-      <div style={{ fontFamily: F_MONO, fontSize: 11, color: '#7A7E78', letterSpacing: '0.06em', marginBottom: 12 }}>
-        {showIos ? t(lang, 'install.iosHint') : t(lang, 'install.desc')}
+      <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.06em', marginBottom: 12 }}>
+        {showIos ? 'Поделиться → На экран Домой' : 'Откроется как приложение'}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {evt && (
@@ -90,8 +91,8 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
             style={{
               flex: 1,
               border: 'none',
-              background: '#FF6B1A',
-              color: '#1A0A00',
+              background: C.target,
+              color: C.targetInk,
               fontFamily: F_DISP,
               fontWeight: 700,
               fontSize: 14,
@@ -99,7 +100,7 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
               borderRadius: 10,
             }}
           >
-            {t(lang, 'install.cta')}
+            Установить
           </button>
         )}
         <button
@@ -107,8 +108,8 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
           style={{
             flex: evt ? '0 0 auto' : 1,
             background: 'transparent',
-            color: '#7A7E78',
-            border: '1px solid #2A302D',
+            color: C.inkDim,
+            border: `1px solid ${C.line2}`,
             fontFamily: F_MONO,
             fontSize: 11,
             letterSpacing: '0.1em',
@@ -117,7 +118,7 @@ export default function InstallPrompt({ lang }: { lang: Lang }) {
             borderRadius: 10,
           }}
         >
-          {t(lang, 'install.later')}
+          Позже
         </button>
       </div>
     </div>

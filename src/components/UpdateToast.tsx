@@ -1,15 +1,13 @@
-import { F_MONO } from '../theme';
+import { C, F_MONO } from '../theme';
 
-type Props = { label: string; cta: string; onApply: () => void };
-
-export default function UpdateToast({ label, cta, onApply }: Props) {
+export default function UpdateToast({ onApply }: { onApply: () => void }) {
   return (
     <div
       role="status"
       style={{
         position: 'fixed',
         left: '50%',
-        bottom: 'calc(18px + env(safe-area-inset-bottom))',
+        bottom: 'calc(20px + env(safe-area-inset-bottom))',
         transform: 'translateX(-50%)',
         zIndex: 9999,
         display: 'flex',
@@ -18,8 +16,8 @@ export default function UpdateToast({ label, cta, onApply }: Props) {
         padding: '10px 14px',
         borderRadius: 12,
         background: 'rgba(11,13,12,0.94)',
-        border: '1px solid #2A302D',
-        color: '#F2F0EA',
+        border: `1px solid ${C.line2}`,
+        color: C.ink,
         fontFamily: F_MONO,
         fontSize: 11,
         letterSpacing: '0.08em',
@@ -28,13 +26,13 @@ export default function UpdateToast({ label, cta, onApply }: Props) {
         animation: 'fadeUp 240ms ease',
       }}
     >
-      <span style={{ textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ textTransform: 'uppercase' }}>Доступно обновление</span>
       <button
         onClick={onApply}
         style={{
           border: 'none',
-          background: '#FF6B1A',
-          color: '#1A0A00',
+          background: C.target,
+          color: C.targetInk,
           fontWeight: 700,
           fontFamily: F_MONO,
           fontSize: 11,
@@ -43,7 +41,7 @@ export default function UpdateToast({ label, cta, onApply }: Props) {
           borderRadius: 8,
         }}
       >
-        {cta}
+        ОБНОВИТЬ
       </button>
     </div>
   );

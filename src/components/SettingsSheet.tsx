@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { C, F_DISP, F_MONO } from '../theme';
-import { t, type Lang } from '../i18n';
-import type { Settings } from '../store/settings';
-import { listVoices, onVoicesReady } from '../lib/speech';
+import type { Settings } from '../App';
+import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
 
 type Props = {
   settings: Settings;
@@ -14,8 +13,16 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => listVoices(settings.lang));
 
   useEffect(() => {
+    setVoices(listVoices(settings.lang));
     return onVoicesReady(() => setVoices(listVoices(settings.lang)));
   }, [settings.lang]);
+
+  const intervalLabel =
+    settings.intervalSec === 0
+      ? 'off'
+      : settings.intervalSec >= 60
+      ? `${Math.floor(settings.intervalSec / 60)}:${String(settings.intervalSec % 60).padStart(2, '0')} min`
+      : `${settings.intervalSec} sec`;
 
   return (
     <div
@@ -23,7 +30,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.5)',
+        background: 'rgba(0,0,0,0.55)',
         zIndex: 100,
         display: 'flex',
         alignItems: 'flex-end',
@@ -34,129 +41,141 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
-          maxHeight: '85vh',
+          maxHeight: '88vh',
           background: C.bg,
           borderTop: `1px solid ${C.line2}`,
-          borderRadius: '18px 18px 0 0',
+          borderRadius: '20px 20px 0 0',
           padding: '14px 16px calc(20px + env(safe-area-inset-bottom))',
           overflowY: 'auto',
           animation: 'fadeUp 240ms ease',
         }}
       >
-        <div
-          style={{
-            width: 40,
-            height: 4,
-            background: C.line2,
-            borderRadius: 2,
-            margin: '0 auto 14px',
-          }}
-        />
-        <div style={{ fontFamily: F_DISP, fontSize: 18, fontWeight: 600, marginBottom: 14 }}>
-          {t(settings.lang, 'settings.title')}
+        <div style={{ width: 40, height: 4, background: C.line2, borderRadius: 2, margin: '0 auto 16px' }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontFamily: F_DISP, fontSize: 24, fontWeight: 600, color: C.ink }}>Settings</div>
+          <button
+            onClick={onClose}
+            aria-label="close"
+            style={{
+              width: 38,
+              height: 38,
+              background: 'transparent',
+              border: `1px solid ${C.line2}`,
+              borderRadius: 10,
+              color: C.ink,
+              fontSize: 18,
+            }}
+          >
+            ✕
+          </button>
         </div>
 
-        <Row label={t(settings.lang, 'settings.interval')} value={settings.intervalSec === 0 ? t(settings.lang, 'settings.intervalOff') : t(settings.lang, 'settings.intervalMin', { m: settings.intervalSec / 60 })}>
-          <input
-            type="range"
-            min={0}
-            max={1800}
-            step={60}
-            value={settings.intervalSec}
-            onChange={(e) => onChange({ intervalSec: Number(e.target.value) })}
-            style={{ width: '100%', accentColor: C.target }}
-          />
-        </Row>
-
-        <Row label={t(settings.lang, 'settings.units')}>
-          <Segmented
-            options={[
-              { value: 'metric', label: t(settings.lang, 'settings.unitsM') },
-              { value: 'imperial', label: t(settings.lang, 'settings.unitsI') },
-            ]}
-            value={settings.units}
-            onChange={(v) => onChange({ units: v as 'metric' | 'imperial' })}
-          />
-        </Row>
-
-        <Row label={t(settings.lang, 'settings.haptics')}>
-          <Toggle value={settings.haptics} onChange={(v) => onChange({ haptics: v })} />
-        </Row>
-
-        <Row label={t(settings.lang, 'settings.lang')}>
+        {/* Language */}
+        <Section>
+          <Label>Language</Label>
           <Segmented
             options={[
               { value: 'ru', label: 'RU' },
               { value: 'en', label: 'EN' },
+              { value: 'de', label: 'DE' },
             ]}
             value={settings.lang}
-            onChange={(v) => onChange({ lang: v as Lang })}
+            onChange={(v) => onChange({ lang: v as VoiceLang })}
           />
-        </Row>
+        </Section>
 
-        <Row label={t(settings.lang, 'settings.voice')}>
-          <select
-            value={settings.voiceURI ?? ''}
-            onChange={(e) => onChange({ voiceURI: e.target.value || null })}
-            style={{
-              width: '100%',
-              background: C.bg2,
-              color: C.ink,
-              border: `1px solid ${C.line2}`,
-              borderRadius: 10,
-              padding: '10px 12px',
-              fontFamily: F_MONO,
-              fontSize: 12,
-            }}
-          >
-            <option value="">{t(settings.lang, 'settings.voiceAuto')}</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-
-        <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-          <div style={{ fontFamily: F_MONO, fontSize: 10, letterSpacing: '0.18em', color: C.inkDim, textTransform: 'uppercase' }}>
-            {t(settings.lang, 'settings.about')}
+        {/* Voice every */}
+        <Section>
+          <RowBetween>
+            <Label>Voice every</Label>
+            <span style={{ fontFamily: F_MONO, fontSize: 13, color: C.target, letterSpacing: '0.04em' }}>
+              {intervalLabel}
+            </span>
+          </RowBetween>
+          <input
+            type="range"
+            min={0}
+            max={600}
+            step={10}
+            value={settings.intervalSec}
+            onChange={(e) => onChange({ intervalSec: Number(e.target.value) })}
+            style={{ width: '100%', accentColor: C.target, marginTop: 8 }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 4 }}>
+            <span>0</span>
+            <span>5</span>
+            <span>10 min</span>
           </div>
-          <div style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim, marginTop: 6 }}>
-            {t(settings.lang, 'settings.version')}: {import.meta.env.VITE_APP_VERSION ?? '0.2.0'}
-          </div>
-        </div>
+        </Section>
 
-        <button
-          onClick={onClose}
-          style={{
-            width: '100%',
-            marginTop: 18,
-            height: 48,
-            background: C.bg2,
-            color: C.ink,
-            border: `1px solid ${C.line2}`,
-            borderRadius: 12,
-            fontFamily: F_MONO,
-            fontSize: 12,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-          }}
-        >
-          {t(settings.lang, 'common.ok')}
-        </button>
+        {/* Units */}
+        <Section>
+          <Label>Units</Label>
+          <Segmented
+            options={[
+              { value: 'metric', label: 'M · KM' },
+              { value: 'imperial', label: 'ft · mi' },
+            ]}
+            value={settings.units}
+            onChange={(v) => onChange({ units: v as 'metric' | 'imperial' })}
+          />
+        </Section>
+
+        {/* Haptics */}
+        <Section>
+          <RowBetween>
+            <Label>Haptics</Label>
+            <Toggle value={settings.haptics} onChange={(v) => onChange({ haptics: v })} />
+          </RowBetween>
+        </Section>
+
+        {/* Voice picker (опционально) */}
+        {voices.length > 0 && (
+          <Section>
+            <Label>Voice</Label>
+            <select
+              value={settings.voiceURI ?? ''}
+              onChange={(e) => onChange({ voiceURI: e.target.value || null })}
+              style={{
+                width: '100%',
+                marginTop: 8,
+                background: C.bg2,
+                color: C.ink,
+                border: `1px solid ${C.line2}`,
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontFamily: F_MONO,
+                fontSize: 12,
+              }}
+            >
+              <option value="">Auto</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </Section>
+        )}
       </div>
     </div>
   );
 }
 
-function Row({ label, value, children }: { label: string; value?: string; children: React.ReactNode }) {
+function Section({ children }: { children: React.ReactNode }) {
+  return <div style={{ marginBottom: 22 }}>{children}</div>;
+}
+
+function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontFamily: F_DISP, fontSize: 14 }}>{label}</span>
-        {value && <span style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim }}>{value}</span>}
-      </div>
+    <span style={{ fontFamily: F_DISP, fontSize: 16, fontWeight: 600, color: C.ink }}>{children}</span>
+  );
+}
+
+function RowBetween({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
       {children}
     </div>
   );
@@ -169,11 +188,11 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       aria-checked={value}
       onClick={() => onChange(!value)}
       style={{
-        width: 44,
-        height: 26,
+        width: 52,
+        height: 30,
         borderRadius: 999,
         border: 'none',
-        background: value ? C.target : C.line2,
+        background: value ? C.target : C.bg3,
         position: 'relative',
         transition: 'background 150ms',
       }}
@@ -182,9 +201,9 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
         style={{
           position: 'absolute',
           top: 3,
-          left: value ? 21 : 3,
-          width: 20,
-          height: 20,
+          left: value ? 25 : 3,
+          width: 24,
+          height: 24,
           borderRadius: '50%',
           background: C.ink,
           transition: 'left 150ms',
@@ -204,7 +223,17 @@ function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div style={{ display: 'flex', gap: 4, background: C.bg2, padding: 4, borderRadius: 10, border: `1px solid ${C.line2}` }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 0,
+        marginTop: 10,
+        background: 'transparent',
+        border: `1px solid ${C.line2}`,
+        borderRadius: 12,
+        padding: 4,
+      }}
+    >
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -214,15 +243,14 @@ function Segmented<T extends string>({
             style={{
               flex: 1,
               border: 'none',
-              background: active ? C.target : 'transparent',
-              color: active ? C.targetInk : C.ink,
-              fontFamily: F_MONO,
-              fontSize: 11,
-              fontWeight: active ? 700 : 500,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              padding: '8px 10px',
-              borderRadius: 8,
+              background: active ? C.bg3 : 'transparent',
+              color: active ? C.ink : C.inkDim,
+              fontFamily: F_DISP,
+              fontSize: 14,
+              fontWeight: active ? 600 : 500,
+              padding: '12px 10px',
+              borderRadius: 10,
+              transition: 'background 150ms, color 150ms',
             }}
           >
             {o.label}

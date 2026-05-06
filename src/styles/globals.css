@@ -1,15 +1,7 @@
 :root {
   --bg: #0a0c0b;
-  --bg2: #111413;
-  --bg3: #181c1a;
   --ink: #f2f0ea;
-  --ink-dim: #7a7e78;
-  --line: #1f2422;
-  --line2: #2a302d;
   --target: #ff6b1a;
-  --target-ink: #1a0a00;
-  --ok: #48de94;
-  --warn: #ff5a3a;
 }
 
 * {
@@ -38,12 +30,14 @@ button {
 }
 
 input,
-button {
+button,
+select {
   outline: none;
   -webkit-appearance: none;
 }
 
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 1px solid var(--target);
 }
 
@@ -58,13 +52,12 @@ input:focus-visible {
   }
 }
 
-@keyframes blinkColon {
-  0%,
-  100% {
-    opacity: 1;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
   }
-  50% {
-    opacity: 0.25;
+  to {
+    opacity: 1;
   }
 }
 
@@ -79,32 +72,17 @@ input:focus-visible {
   }
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .maplibregl-ctrl-attrib {
-  background: rgba(11, 13, 12, 0.6) !important;
+  background: rgba(11, 13, 12, 0.55) !important;
   font-size: 9px !important;
   letter-spacing: 0.06em;
-  color: var(--ink-dim) !important;
+  color: #7a7e78 !important;
   border-radius: 6px !important;
   padding: 2px 6px !important;
 }
 
 .maplibregl-ctrl-attrib a {
-  color: var(--ink-dim) !important;
+  color: #7a7e78 !important;
 }
 
 .maplibregl-canvas:focus {
