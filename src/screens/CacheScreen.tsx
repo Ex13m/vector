@@ -78,16 +78,16 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
 
     map.on('load', () => {
       addVectorSource(map);
-      // Маркер цели.
+      // Маркер цели — контейнер совпадает по размеру с пульсом, иконка центрована флексом.
       const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.style.cssText = 'position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;pointer-events:none';
       tg.innerHTML = `
-        <div style="position:absolute;width:44px;height:44px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 8px ${C.glow})">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="3" fill="${C.target}"/>
         </svg>`;
-      targetMarkerRef.current = new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(map);
+      targetMarkerRef.current = new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
     });
 
     map.on('styledata', () => {
@@ -396,16 +396,21 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
         {!progress && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={onSkip}
+              onClick={() => {
+                haptic('light', settings.haptics);
+                onSkip();
+              }}
               style={{
-                width: 100,
+                width: 110,
                 height: 48,
-                background: 'transparent',
+                background: 'rgba(17,20,19,0.95)',
+                backdropFilter: 'blur(10px)',
                 border: `1px solid ${C.line2}`,
-                color: C.inkDim,
+                color: C.ink,
                 borderRadius: 10,
                 fontFamily: F_MONO,
                 fontSize: 11,
+                fontWeight: 600,
                 letterSpacing: '0.16em',
                 textTransform: 'uppercase',
               }}

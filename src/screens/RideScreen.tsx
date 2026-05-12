@@ -206,16 +206,16 @@ export default function RideScreen({
         },
       });
 
-      // Маркер цели — оранжевый прицел с pulse.
+      // Маркер цели — контейнер = пульсу, иконка центрована.
       const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.style.cssText = 'position:relative;width:60px;height:60px;display:flex;align-items:center;justify-content:center;pointer-events:none';
       tg.innerHTML = `
-        <div style="position:absolute;width:60px;height:60px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 10px ${C.glow})">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="3" fill="${C.target}"/>
         </svg>`;
-      targetMarkerRef.current = new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(map);
+      targetMarkerRef.current = new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
     });
 
     const onDragStart = () => {

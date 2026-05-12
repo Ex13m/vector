@@ -160,9 +160,9 @@ export default function PickScreen({
     targetMarkerRef.current = null;
     if (!target) return;
     const el = document.createElement('div');
-    el.style.cssText = 'position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:grab';
+    el.style.cssText = 'position:relative;width:48px;height:48px;display:flex;align-items:center;justify-content:center;cursor:grab';
     el.innerHTML = `
-      <div style="position:absolute;width:48px;height:48px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
+      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2" style="filter:drop-shadow(0 0 10px ${C.glow})">
         <circle cx="12" cy="12" r="10"/>
         <circle cx="12" cy="12" r="5"/>
@@ -170,7 +170,7 @@ export default function PickScreen({
         <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
         <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
       </svg>`;
-    const marker = new maplibregl.Marker({ element: el, draggable: false }).setLngLat([target.lng, target.lat]).addTo(map);
+    const marker = new maplibregl.Marker({ element: el, draggable: false, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
     targetMarkerRef.current = marker;
 
     // Long-press → разрешить drag
