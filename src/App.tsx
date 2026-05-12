@@ -11,6 +11,7 @@ import type { Layer } from './lib/mapStyles';
 import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
+import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 
 export type Settings = {
   intervalSec: number; // 0..900 step 60 (0–15 мин, шаг 1 мин)
@@ -65,6 +66,9 @@ function saveSettings(s: Settings) {
 type Screen = 'pick' | 'cache' | 'ride';
 
 export default function App() {
+  // Создаём <audio> сразу при старте — play() будет вызван из жеста «Старт».
+  useEffect(() => { initWakeAudio(); }, []);
+
   const [screen, setScreen] = useState<Screen>('pick');
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [target, setTarget] = useState<LatLng | null>(null);
@@ -98,6 +102,7 @@ export default function App() {
   }, [settings.lang]);
 
   const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
+    resumeWakeAudio(); // внутри жеста «Старт →» — запускаем фоновый аудио
     setTarget(tg);
     setTargetName(name);
     setReverse(false);

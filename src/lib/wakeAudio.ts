@@ -1,57 +1,107 @@
-// Тихий аудио-loop, чтобы вкладка считалась «media-active» и не глохла при
-// заблокированном экране — иначе speechSynthesis ставится на паузу и
-// setInterval троттлится. Goal: голос работает в наушниках с погашенным экраном.
+// Фоновый аудио для работы голоса с погашенным экраном.
 //
-// Решение: <audio> элемент с silent MP3 (намного надёжнее AudioContext-осциллятора
-// на iOS Safari и Android Chrome PWA).
-// Silent MP3 = минимальный валидный mp3 (44 байта), loop=true.
-// Этого достаточно, чтобы браузер держал вкладку «audio-active».
+// ПРОБЛЕМА: speechSynthesis и setInterval троттлятся браузером когда
+// страница не видна (экран выключен / другое приложение). Браузер делает
+// исключение для вкладок с активным аудио — поэтому нужен тихий цикл.
+//
+// КРИТИЧНО для iOS/Android: el.play() должен вызываться СИНХРОННО
+// внутри пользовательского жеста (touchstart/click). Нельзя вызывать
+// из useEffect или setTimeout — браузер заблокирует.
+//
+// Схема:
+//   1. initWakeAudio()  — вызвать при старте приложения (создаёт элемент)
+//   2. resumeWakeAudio() — вызвать из ЖЕСТА (кнопки «Старт», тапы на экране)
+//   3. startWakeAudio()  — вызывается из RideScreen useEffect как запасной вариант
+//
+// Авто-старт: при первом touchstart/click на странице пробуем play() автоматически.
 
-// Минимальный валидный silent MP3 в base64 (44 байта).
-// Источник: https://github.com/anars/blank-audio
-const SILENT_MP3_B64 =
-  'SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZFR1bmVzLmNvbSAvIFRoZSBJbnRlcm5ldCdzIFNvdW5kYmFua//uQwAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD//////////////////////////////////////////////////////////////////AAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQCkAAAAAAAAAJxThjWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+// Минимальный валидный silent MP3 (1 секунда, 8 kHz mono, 8 kbps).
+// Используется вместо AudioContext-осциллятора — браузеры надёжнее
+// держат вкладку активной с реальным <audio> элементом.
+const SILENT_MP3 =
+  'data:audio/mpeg;base64,' +
+  '//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgIC' +
+  'AgICAgICAgICAgICAgICAgICAgICAv//uQxAMAAANIAAAAAAAAAA0gAAAAAExBTUUzLjk4LjIA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 let audioEl: HTMLAudioElement | null = null;
+let _playing = false;
 
-export function startWakeAudio(): void {
+function tryPlay(): void {
+  if (!audioEl || _playing) return;
+  void audioEl.play().then(() => {
+    _playing = true;
+  }).catch(() => {
+    // Жест не захвачен — попробуем снова при следующем взаимодействии
+  });
+}
+
+// Авто-старт на первый жест пользователя (любой тап).
+function onFirstGesture() {
+  tryPlay();
+  if (_playing) {
+    document.removeEventListener('touchstart', onFirstGesture, true);
+    document.removeEventListener('mousedown', onFirstGesture, true);
+  }
+}
+
+/** Создаёт <audio> элемент. Можно вызвать без жеста. */
+export function initWakeAudio(): void {
   if (audioEl) return;
   try {
     const el = document.createElement('audio');
-    el.src = `data:audio/mpeg;base64,${SILENT_MP3_B64}`;
+    el.src = SILENT_MP3;
     el.loop = true;
-    el.volume = 0.001; // почти беззвучно, но не 0 — иначе браузер может игнорировать
+    el.volume = 0.001; // почти беззвучно, но не 0
     el.setAttribute('playsinline', '');
     el.setAttribute('webkit-playsinline', '');
-    // autoplay запрещён без жеста; play() вызовем при первом взаимодействии
+    el.setAttribute('x-webkit-airplay', 'deny');
     document.body.appendChild(el);
     audioEl = el;
-    // Пробуем сразу — сработает если уже был жест пользователя
-    void el.play().catch(() => {
-      // Не критично — повторим в resumeWakeAudio() при первом тапе
-    });
+    // Подписываемся на первый жест для автозапуска
+    document.addEventListener('touchstart', onFirstGesture, { capture: true, once: false });
+    document.addEventListener('mousedown', onFirstGesture, { capture: true, once: false });
   } catch {
     audioEl = null;
   }
 }
 
+/**
+ * Запустить/возобновить фоновый аудио.
+ * ДОЛЖЕН вызываться из обработчика жеста (кнопка, тап).
+ */
 export function resumeWakeAudio(): void {
-  if (!audioEl) return;
-  if (audioEl.paused) {
-    void audioEl.play().catch(() => {});
-  }
+  if (!audioEl) initWakeAudio();
+  tryPlay();
+}
+
+/**
+ * Вызывается из RideScreen useEffect как дополнительная инициализация.
+ * play() здесь может не сработать (нет жеста), но элемент будет создан
+ * и авто-старт сработает при первом тапе пользователя.
+ */
+export function startWakeAudio(): void {
+  initWakeAudio();
+  tryPlay(); // может быть заблокировано — ok, авто-старт подхватит
 }
 
 export function stopWakeAudio(): void {
-  if (!audioEl) return;
-  try {
-    audioEl.pause();
-    audioEl.src = '';
-    if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
-  } catch {
-    // ignore
+  document.removeEventListener('touchstart', onFirstGesture, true);
+  document.removeEventListener('mousedown', onFirstGesture, true);
+  if (audioEl) {
+    try {
+      audioEl.pause();
+      audioEl.src = '';
+      if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
+    } catch {
+      // ignore
+    }
+    audioEl = null;
+    _playing = false;
   }
-  audioEl = null;
   clearMediaSession();
 }
 
@@ -64,6 +114,10 @@ export function setupMediaSession(title: string): void {
       album: 'Voice cycling beacon',
     });
     navigator.mediaSession.playbackState = 'playing';
+    // Пустые обработчики — iOS требует их для статуса playing
+    const noop = () => {};
+    navigator.mediaSession.setActionHandler('play', noop);
+    navigator.mediaSession.setActionHandler('pause', noop);
   } catch {
     // ignore
   }

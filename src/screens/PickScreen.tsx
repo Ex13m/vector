@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
+import { resumeWakeAudio } from '../lib/wakeAudio';
 import { styleFor, type Layer } from '../lib/mapStyles';
 import { searchPlace, reverseGeocode, type GeoResult } from '../lib/geocoder';
 import {
@@ -48,6 +49,7 @@ export default function PickScreen({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
+  // targetMarkerRef — прозрачный drag-хэндл поверх circle layer.
   const targetMarkerRef = useRef<Marker | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
@@ -104,10 +106,12 @@ export default function PickScreen({
 
     map.on('load', () => {
       addVectorSource(map);
+      addTargetSource(map);
     });
 
     map.on('styledata', () => {
       addVectorSource(map);
+      addTargetSource(map);
     });
 
     return () => {
@@ -152,29 +156,39 @@ export default function PickScreen({
     (svg as unknown as HTMLElement).style.transform = `rotate(${deg}deg)`;
   }, [me, target]);
 
-  // Маркер цели + drag по long-press.
+  // Маркер цели: визуал — circle layer на canvas (гарантированно виден),
+  // drag — прозрачный DOM-хэндл поверх.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    // Убираем старый drag-хэндл.
     targetMarkerRef.current?.remove();
     targetMarkerRef.current = null;
-    if (!target) return;
+
+    // Обновляем GeoJSON source цели (создаётся в addTargetSource).
+    const updateTargetLayer = () => {
+      const src = map.getSource('target-pt') as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      if (target) {
+        src.setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} });
+      } else {
+        src.setData({ type: 'FeatureCollection', features: [] });
+      }
+    };
+    updateTargetLayer();
+    map.on('styledata', updateTargetLayer);
+
+    if (!target) return () => { map.off('styledata', updateTargetLayer); };
+
+    // Прозрачный drag-хэндл — 48×48 px, нет визуала, только для drag.
     const el = document.createElement('div');
-    el.style.cssText = 'position:relative;width:1px;height:1px;cursor:grab;overflow:visible';
-    el.innerHTML = `
-      <div style="position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2"
-           style="position:absolute;left:50%;top:50%;margin:-14px 0 0 -14px;filter:drop-shadow(0 0 10px ${C.glow})">
-        <circle cx="12" cy="12" r="10"/>
-        <circle cx="12" cy="12" r="5"/>
-        <circle cx="12" cy="12" r="2" fill="${C.target}"/>
-        <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
-        <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
-      </svg>`;
-    const marker = new maplibregl.Marker({ element: el, draggable: false, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
+    el.style.cssText = 'width:48px;height:48px;cursor:grab;opacity:0;';
+    const marker = new maplibregl.Marker({ element: el, draggable: false, anchor: 'center' })
+      .setLngLat([target.lng, target.lat])
+      .addTo(map);
     targetMarkerRef.current = marker;
 
-    // Long-press → разрешить drag
     const onDown = () => {
       if (dragTimerRef.current) window.clearTimeout(dragTimerRef.current);
       dragTimerRef.current = window.setTimeout(() => {
@@ -200,6 +214,7 @@ export default function PickScreen({
     });
 
     return () => {
+      map.off('styledata', updateTargetLayer);
       el.removeEventListener('pointerdown', onDown);
       el.removeEventListener('pointerup', onUp);
       el.removeEventListener('pointerleave', onUp);
@@ -338,6 +353,7 @@ export default function PickScreen({
   function start() {
     if (!target || !mapRef.current) return;
     haptic('medium', settings.haptics);
+    resumeWakeAudio(); // <-- внутри жеста: запускаем фоновый аудио здесь
     const b = mapRef.current.getBounds();
     onConfirm(target, targetName, {
       west: b.getWest(),
@@ -818,6 +834,45 @@ function addVectorSource(map: MlMap): void {
         'line-width': 2.5,
         'line-opacity': 0.85,
         'line-dasharray': [3, 2],
+      },
+    });
+  }
+}
+
+// Маркер цели через circle layers — рисуется на canvas, не зависит от DOM.
+function addTargetSource(map: MlMap): void {
+  if (!map.getSource('target-pt')) {
+    map.addSource('target-pt', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
+  if (!map.getLayer('target-halo')) {
+    map.addLayer({
+      id: 'target-halo',
+      type: 'circle',
+      source: 'target-pt',
+      paint: {
+        'circle-radius': 22,
+        'circle-color': 'transparent',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': C.target,
+        'circle-stroke-opacity': 0.75,
+        'circle-opacity': 0,
+      },
+    });
+  }
+  if (!map.getLayer('target-dot')) {
+    map.addLayer({
+      id: 'target-dot',
+      type: 'circle',
+      source: 'target-pt',
+      paint: {
+        'circle-radius': 8,
+        'circle-color': C.target,
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': C.bg,
+        'circle-opacity': 1,
       },
     });
   }
