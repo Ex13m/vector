@@ -5,7 +5,7 @@
 // оранжевый прицел цели с pulse + drag по long-press,
 // карточка снизу с reverse-geocode названием.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
 import { styleFor, type Layer } from '../lib/mapStyles';
 import { searchPlace, reverseGeocode, type GeoResult } from '../lib/geocoder';
@@ -23,6 +23,7 @@ import {
 import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
+import { haptic } from '../lib/feedback';
 import { C, F_DISP, F_MONO } from '../theme';
 
 type Props = {
@@ -50,7 +51,7 @@ export default function PickScreen({
   const targetMarkerRef = useRef<Marker | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
-  const vectorLineRef = useRef<HTMLDivElement | null>(null);
+  const distancePillRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [target, setTarget] = useState<LatLng | null>(null);
@@ -94,10 +95,19 @@ export default function PickScreen({
     mapRef.current = map;
 
     map.on('click', (e) => {
+      haptic('light', true);
       // Closе подсказки и поповеры на тап по карте.
       setSuggestOpen(false);
       setLayerOpen(false);
       setTarget({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+    });
+
+    map.on('load', () => {
+      addVectorSource(map);
+    });
+
+    map.on('styledata', () => {
+      addVectorSource(map);
     });
 
     return () => {
@@ -254,47 +264,60 @@ export default function PickScreen({
     return () => window.removeEventListener('keydown', onKey);
   }, [suggestOpen]);
 
-  // Vector-overlay в реальных пиксельных координатах (SVG поверх карты).
-  const redrawVectorOverlay = useCallback(() => {
-    const node = vectorLineRef.current;
-    const map = mapRef.current;
-    if (!node || !map || !me || !target) {
-      if (node) node.style.display = 'none';
-      return;
-    }
-    const a = map.project([me.lng, me.lat]);
-    const b = map.project([target.lng, target.lat]);
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 8) {
-      node.style.display = 'none';
-      return;
-    }
-    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-    node.style.display = 'block';
-    node.style.left = `${a.x}px`;
-    node.style.top = `${a.y}px`;
-    node.style.width = `${len}px`;
-    node.style.transform = `rotate(${angleDeg}deg)`;
-  }, [me, target]);
-
+  // Vector line — теперь MapLibre source. Обновляется на каждое me/target.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    redrawVectorOverlay();
-    map.on('move', redrawVectorOverlay);
-    map.on('zoom', redrawVectorOverlay);
-    return () => {
-      map.off('move', redrawVectorOverlay);
-      map.off('zoom', redrawVectorOverlay);
+    const update = () => {
+      const src = map.getSource('vector') as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      if (me && target) {
+        src.setData({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [[me.lng, me.lat], [target.lng, target.lat]] },
+          properties: {},
+        });
+      } else {
+        src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} });
+      }
     };
-  }, [redrawVectorOverlay]);
+    update();
+    map.on('styledata', update);
+    return () => {
+      map.off('styledata', update);
+    };
+  }, [me, target]);
+
+  // Пилюля расстояния — Marker по геогр. середине.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!me || !target) {
+      distancePillRef.current?.remove();
+      distancePillRef.current = null;
+      return;
+    }
+    const midLng = (me.lng + target.lng) / 2;
+    const midLat = (me.lat + target.lat) / 2;
+    const distM = distanceM(me, target);
+    const d = fmtDist(distM, settings.units);
+    if (!distancePillRef.current) {
+      const el = document.createElement('div');
+      el.style.cssText = `background:${C.bg};border:1.5px solid ${C.target};border-radius:999px;padding:4px 12px;font-family:${F_MONO};font-size:11px;font-weight:600;color:${C.target};white-space:nowrap;pointer-events:none`;
+      el.textContent = `${d.v} ${d.u}`;
+      distancePillRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([midLng, midLat]).addTo(map);
+    } else {
+      distancePillRef.current.setLngLat([midLng, midLat]);
+      const el = distancePillRef.current.getElement();
+      el.textContent = `${d.v} ${d.u}`;
+    }
+  }, [me, target, settings.units]);
 
   const distM = me && target ? distanceM(me, target) : 0;
   const dist = me && target ? fmtDist(distM, settings.units) : null;
 
   function pickSuggestion(r: GeoResult) {
+    haptic('light', settings.haptics);
     setTarget({ lat: r.lat, lng: r.lng });
     setTargetName(r.name);
     setSuggestions([]);
@@ -304,6 +327,7 @@ export default function PickScreen({
   }
 
   function pickSavedTarget(s: SavedTarget) {
+    haptic('light', settings.haptics);
     setTarget({ lat: s.lat, lng: s.lng });
     setTargetName(s.name);
     setShowFavSheet(false);
@@ -312,6 +336,7 @@ export default function PickScreen({
 
   function start() {
     if (!target || !mapRef.current) return;
+    haptic('medium', settings.haptics);
     const b = mapRef.current.getBounds();
     onConfirm(target, targetName, {
       west: b.getWest(),
@@ -323,6 +348,7 @@ export default function PickScreen({
 
   async function saveCurrent() {
     if (!target) return;
+    haptic('light', settings.haptics);
     const def = targetName ?? 'Точка';
     const name = window.prompt('Название точки:', def);
     if (!name) return;
@@ -340,24 +366,6 @@ export default function PickScreen({
     <div style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}>
       {/* Map fills the screen */}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-
-      {/* Vector «вы → цель» — оранжевый пунктир + пилюля по центру (CSS overlay) */}
-      <div
-        ref={vectorLineRef}
-        style={{
-          position: 'absolute',
-          height: 0,
-          borderTop: `2.5px dashed ${C.target}`,
-          opacity: 0.85,
-          transformOrigin: '0 50%',
-          pointerEvents: 'none',
-          display: 'none',
-          zIndex: 3,
-        }}
-      />
-      {me && target && dist && (
-        <DistancePill mapRef={mapRef} me={me} target={target} text={`${dist.v} ${dist.u}`} />
-      )}
 
       {/* Top bar: поиск + слой + ★ */}
       <div
@@ -792,62 +800,26 @@ function LayerPopover({ layer, onPick }: { layer: Layer; onPick: (l: Layer) => v
   );
 }
 
-function DistancePill({
-  mapRef,
-  me,
-  target,
-  text,
-}: {
-  mapRef: React.MutableRefObject<MlMap | null>;
-  me: LatLng;
-  target: LatLng;
-  text: string;
-}) {
-  const [pos, setPos] = useState<{ x: number; y: number; angle: number } | null>(null);
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const recompute = () => {
-      const a = map.project([me.lng, me.lat]);
-      const b = map.project([target.lng, target.lat]);
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      let ang = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-      if (ang > 90) ang -= 180;
-      if (ang < -90) ang += 180;
-      setPos({ x: mid.x, y: mid.y, angle: ang });
-    };
-    recompute();
-    map.on('move', recompute);
-    map.on('zoom', recompute);
-    return () => {
-      map.off('move', recompute);
-      map.off('zoom', recompute);
-    };
-  }, [mapRef, me, target]);
-  if (!pos) return null;
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: pos.x,
-        top: pos.y,
-        transform: `translate(-50%, -50%) rotate(${pos.angle}deg)`,
-        background: C.bg,
-        border: `1.5px solid ${C.target}`,
-        borderRadius: 999,
-        padding: '4px 12px',
-        fontFamily: F_MONO,
-        fontSize: 11,
-        fontWeight: 600,
-        color: C.target,
-        zIndex: 4,
-        pointerEvents: 'none',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {text}
-    </div>
-  );
+function addVectorSource(map: MlMap): void {
+  if (!map.getSource('vector')) {
+    map.addSource('vector', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+    });
+  }
+  if (!map.getLayer('vector-line')) {
+    map.addLayer({
+      id: 'vector-line',
+      type: 'line',
+      source: 'vector',
+      paint: {
+        'line-color': C.target,
+        'line-width': 2.5,
+        'line-opacity': 0.85,
+        'line-dasharray': [3, 2],
+      },
+    });
+  }
 }
 
 // ─── Saved sheet (избранное + поездки) ──────────────────────────────────────

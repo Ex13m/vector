@@ -45,11 +45,13 @@ export default defineConfig({
               url.host === 'a.tile.opentopomap.org' ||
               url.host === 'b.tile.opentopomap.org' ||
               url.host === 'c.tile.opentopomap.org' ||
-              url.host === 'tile.opentopomap.org',
+              url.host === 'tile.opentopomap.org' ||
+              url.host === 'server.arcgisonline.com' ||
+              url.host.endsWith('tile-cyclosm.openstreetmap.fr'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',
-              expiration: { maxEntries: 4096, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              expiration: { maxEntries: 8192, maxAgeSeconds: 60 * 60 * 24 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

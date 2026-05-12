@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { C, F_DISP, F_MONO } from '../theme';
 import type { Settings } from '../App';
-import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP } from '../App';
+import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP } from '../lib/constants';
 import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
 
 type Props = {

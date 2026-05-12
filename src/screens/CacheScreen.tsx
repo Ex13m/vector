@@ -3,7 +3,7 @@
 // pinch меняет область кэширования, top-card с live-счётчиком,
 // «Сохранить область» внизу, лимит 2000 тайлов, auto-skip если всё уже в кэше.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
 import { styleFor } from '../lib/mapStyles';
 import {
@@ -17,6 +17,7 @@ import {
 } from '../lib/tiles';
 import { tileUrl } from '../lib/mapStyles';
 import { distanceM, fmtDist, type LatLng } from '../lib/geo';
+import { haptic } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
 
@@ -30,14 +31,20 @@ type Props = {
   onBack: () => void;
 };
 
-const TILE_ZOOMS = [12, 13, 14, 15, 16];
+// Адаптивный диапазон зумов: «что видно — то и кэшируется». Берём 3 уровня
+// вокруг текущего зума карты, чтоб лимит 2000 тайлов работал и на 50 км,
+// и на 5 км — просто с разной детализацией.
+function adaptiveZooms(currentZoom: number): number[] {
+  const z = Math.max(8, Math.min(18, Math.round(currentZoom)));
+  return [Math.max(8, z - 1), z, Math.min(18, z + 1)];
+}
 
 export default function CacheScreen({ settings, target, box, onSkip, onDone, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
-  const vectorLineRef = useRef<HTMLDivElement | null>(null);
+  const distancePillRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [currentBox, setCurrentBox] = useState<LngLatBox>(box);
@@ -70,6 +77,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     mapRef.current = map;
 
     map.on('load', () => {
+      addVectorSource(map);
       // Маркер цели.
       const tg = document.createElement('div');
       tg.style.cssText = 'position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;pointer-events:none';
@@ -82,6 +90,10 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       targetMarkerRef.current = new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(map);
     });
 
+    map.on('styledata', () => {
+      addVectorSource(map);
+    });
+
     return () => {
       map.remove();
       mapRef.current = null;
@@ -89,31 +101,51 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const redrawVectorOverlay = useCallback(() => {
-    const node = vectorLineRef.current;
+  // Vector line через MapLibre source — пиксель-в-пиксель с маркерами.
+  useEffect(() => {
     const map = mapRef.current;
-    if (!node || !map || !me) {
-      if (node) node.style.display = 'none';
-      return;
-    }
-    const a = map.project([me.lng, me.lat]);
-    const b = map.project([target.lng, target.lat]);
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 8) {
-      node.style.display = 'none';
-      return;
-    }
-    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-    node.style.display = 'block';
-    node.style.left = `${a.x}px`;
-    node.style.top = `${a.y}px`;
-    node.style.width = `${len}px`;
-    node.style.transform = `rotate(${angleDeg}deg)`;
+    if (!map) return;
+    const update = () => {
+      const src = map.getSource('vector') as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      if (me) {
+        src.setData({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [[me.lng, me.lat], [target.lng, target.lat]] },
+          properties: {},
+        });
+      }
+    };
+    update();
+    map.on('styledata', update);
+    return () => {
+      map.off('styledata', update);
+    };
   }, [me, target]);
 
-  // Слушатели карты — пересоздаются когда меняется redrawVectorOverlay / setCurrentBox.
+  // Пилюля расстояния по геогр. середине.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me) {
+      distancePillRef.current?.remove();
+      distancePillRef.current = null;
+      return;
+    }
+    const midLng = (me.lng + target.lng) / 2;
+    const midLat = (me.lat + target.lat) / 2;
+    const d = fmtDist(distanceM(me, target), settings.units);
+    if (!distancePillRef.current) {
+      const el = document.createElement('div');
+      el.style.cssText = `background:${C.bg};border:1.5px solid ${C.target};border-radius:999px;padding:4px 12px;font-family:${F_MONO};font-size:11px;font-weight:600;color:${C.target};white-space:nowrap;pointer-events:none`;
+      el.textContent = `${d.v} ${d.u}`;
+      distancePillRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([midLng, midLat]).addTo(map);
+    } else {
+      distancePillRef.current.setLngLat([midLng, midLat]);
+      distancePillRef.current.getElement().textContent = `${d.v} ${d.u}`;
+    }
+  }, [me, target, settings.units]);
+
+  // Слушатель pan карты для обновления currentBox + скрытия hint.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -121,13 +153,12 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       const b = map.getBounds();
       setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
       setHintHidden(true);
-      redrawVectorOverlay();
     };
     map.on('move', onMove);
     return () => {
       map.off('move', onMove);
     };
-  }, [redrawVectorOverlay]);
+  }, []);
 
   // FitBounds на вы + цель когда узнали GPS.
   useEffect(() => {
@@ -167,12 +198,23 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
   }, [settings.layer]);
 
-  useEffect(() => {
-    redrawVectorOverlay();
-  }, [redrawVectorOverlay]);
-
   // Тайлы для текущей видимой области.
-  const tilesPlanned = useMemo(() => tilesForBox(currentBox, TILE_ZOOMS), [currentBox]);
+  const [mapZoom, setMapZoom] = useState<number>(12);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const update = () => setMapZoom(map.getZoom());
+    update();
+    map.on('zoom', update);
+    map.on('moveend', update);
+    return () => {
+      map.off('zoom', update);
+      map.off('moveend', update);
+    };
+  }, []);
+
+  const zooms = useMemo(() => adaptiveZooms(mapZoom), [mapZoom]);
+  const tilesPlanned = useMemo(() => tilesForBox(currentBox, zooms), [currentBox, zooms]);
   const total = tilesPlanned.length;
   const sizeBytes = bytesEstimate(total);
   const tooBig = total > MAX_TILES;
@@ -189,6 +231,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
 
   async function start() {
     if (tooBig) return;
+    haptic('medium', settings.haptics);
     abortRef.current = new AbortController();
     setProgress({ done: 0, total });
     await downloadTiles(
@@ -202,34 +245,19 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   }
 
   function cancel() {
+    haptic('light', settings.haptics);
     abortRef.current?.abort();
     setProgress(null);
   }
 
-  const distM = me ? distanceM(me, target) : 0;
-  const dist = me ? fmtDist(distM, settings.units) : null;
   const ready = progress && progress.done >= progress.total && progress.total > 0;
   const pct = progress ? Math.round((progress.done / Math.max(1, progress.total)) * 100) : 0;
-  const zoomRange = `${TILE_ZOOMS[0]}–${TILE_ZOOMS[TILE_ZOOMS.length - 1]}`;
+  const zoomRange = `${zooms[0]}–${zooms[zooms.length - 1]}`;
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Vector overlay */}
-      <div
-        ref={vectorLineRef}
-        style={{
-          position: 'absolute',
-          height: 0,
-          borderTop: `2.5px dashed ${C.target}`,
-          opacity: 0.85,
-          transformOrigin: '0 50%',
-          pointerEvents: 'none',
-          display: 'none',
-          zIndex: 3,
-        }}
-      />
 
       {/* Top card */}
       <div
@@ -317,30 +345,6 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       )}
 
       {/* Distance hint when close to target */}
-      {dist && !progress && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 'calc(150px + env(safe-area-inset-bottom))',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            fontFamily: F_MONO,
-            fontSize: 11,
-            color: C.target,
-            letterSpacing: '0.08em',
-            background: 'rgba(11,13,12,0.92)',
-            border: `1px solid ${C.target}`,
-            borderRadius: 999,
-            padding: '4px 12px',
-            fontWeight: 600,
-            zIndex: 4,
-            pointerEvents: 'none',
-          }}
-        >
-          {dist.v} {dist.u}
-        </div>
-      )}
-
       {/* Bottom CTA / progress */}
       <div
         style={{
@@ -480,6 +484,28 @@ function bearingPx(a: LatLng, b: LatLng): number {
   const dx = b.lng - a.lng;
   const dy = b.lat - a.lat;
   return (Math.atan2(dx, dy) * 180) / Math.PI;
+}
+
+function addVectorSource(map: MlMap): void {
+  if (!map.getSource('vector')) {
+    map.addSource('vector', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+    });
+  }
+  if (!map.getLayer('vector-line')) {
+    map.addLayer({
+      id: 'vector-line',
+      type: 'line',
+      source: 'vector',
+      paint: {
+        'line-color': C.target,
+        'line-width': 2.5,
+        'line-opacity': 0.85,
+        'line-dasharray': [3, 2],
+      },
+    });
+  }
 }
 
 function tileUrlVariants(layer: Parameters<typeof tileUrl>[0], z: number, x: number, y: number): string[] {

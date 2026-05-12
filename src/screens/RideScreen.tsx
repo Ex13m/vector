@@ -28,6 +28,7 @@ import { startHeading, bearingFromTrail, needsIosPermission, requestIosPermissio
 import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
+import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
 import MiniDial from '../components/MiniDial';
@@ -279,11 +280,19 @@ export default function RideScreen({
         </svg>`;
       meArrowRef.current = el.querySelector('svg');
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
-      map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
+      // Начальный кадр: вы + цель в кадре с запасом — иначе на 50 км цель уезжает.
+      const d = distanceM(me, target);
+      if (d > 800) {
+        const sw: [number, number] = [Math.min(me.lng, target.lng), Math.min(me.lat, target.lat)];
+        const ne: [number, number] = [Math.max(me.lng, target.lng), Math.max(me.lat, target.lat)];
+        map.fitBounds([sw, ne], { padding: 80, maxZoom: 16, duration: 800 });
+      } else {
+        map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
+      }
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
-  }, [me]);
+  }, [me, target]);
 
   // ── Trail redraw + vector line redraw.
   useEffect(() => {
@@ -332,12 +341,7 @@ export default function RideScreen({
     return () => clearInterval(id);
   }, [paused]);
 
-  // ── Auto-hide chrome через 5 сек.
-  useEffect(() => {
-    if (!chromeVisible) return;
-    const id = setTimeout(() => setChromeVisible(false), 5_000);
-    return () => clearTimeout(id);
-  }, [chromeVisible]);
+  // Auto-hide chrome убран — по требованию иконки всегда видны.
 
   // ── Расчёты.
   const liveSpeedMps = useMemo(() => {
@@ -480,14 +484,19 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak]);
 
-  // ── Haptics на смену часа.
+  // ── Haptics + звуковой сигнал на смену часа.
+  // При переходе на 12 — двойной восходящий beep «цель впереди» + усиленная вибра.
   useEffect(() => {
-    if (!settings.haptics) return;
     if (lastClockRef.current !== null && lastClockRef.current !== clockNum) {
-      navigator.vibrate?.(clockNum === 12 ? [12, 30, 24] : 10);
+      if (clockNum === 12) {
+        haptic('success', settings.haptics);
+        if (!silenced) chimeOnTarget();
+      } else {
+        haptic('light', settings.haptics);
+      }
     }
     lastClockRef.current = clockNum;
-  }, [clockNum, settings.haptics]);
+  }, [clockNum, settings.haptics, silenced]);
 
   // ── visibilitychange: при пробуждении — отменить накопившуюся речь и
   // дождаться свежего GPS перед следующей фразой.
@@ -611,7 +620,7 @@ export default function RideScreen({
           letterSpacing: '0.2em',
           color: gpsLost ? C.danger : C.ink,
           zIndex: 6,
-          opacity: chromeVisible ? 1 : 0.25,
+          opacity: 1,
           transition: 'opacity 400ms, border-color 200ms, color 200ms',
         }}
       >
@@ -635,7 +644,7 @@ export default function RideScreen({
           top: 'calc(14px + env(safe-area-inset-top))',
           left: 12,
           zIndex: 6,
-          opacity: chromeVisible ? 1 : 0.25,
+          opacity: 1,
           transition: 'opacity 400ms',
         }}
       >
@@ -685,7 +694,7 @@ export default function RideScreen({
           position: 'absolute',
           top: 'calc(14px + env(safe-area-inset-top))',
           right: 12,
-          opacity: chromeVisible ? 1 : 0.25,
+          opacity: 1,
           transition: 'opacity 400ms',
           zIndex: 6,
         }}
@@ -782,7 +791,7 @@ export default function RideScreen({
           color: C.ink,
           fontSize: 16,
           zIndex: 5,
-          opacity: chromeVisible ? 1 : 0.25,
+          opacity: 1,
           transition: 'opacity 400ms',
         }}
       >
@@ -814,15 +823,23 @@ export default function RideScreen({
         paused={paused}
         silenced={silenced}
         onPause={() => {
+          haptic('medium', settings.haptics);
           setPaused((p) => !p);
           resumeWakeAudio();
         }}
-        onSay={sayNow}
+        onSay={() => {
+          haptic('light', settings.haptics);
+          sayNow();
+        }}
         onMute={() => {
+          haptic('light', settings.haptics);
           setSilenced((v) => !v);
           if (!silenced) speechSynthesis.cancel();
         }}
-        onStop={manualStop}
+        onStop={() => {
+          haptic('heavy', settings.haptics);
+          manualStop();
+        }}
       />
 
       {/* Long-press peek */}
@@ -861,11 +878,22 @@ export default function RideScreen({
           onName={setTripName}
           units={settings.units}
           targetName={targetName}
-          onJournal={onJournal}
-          onNew={onExit}
+          target={target}
+          trail={trail}
+          onJournal={() => {
+            haptic('light', settings.haptics);
+            onJournal();
+          }}
+          onNew={() => {
+            haptic('medium', settings.haptics);
+            onExit();
+          }}
           onReverse={
             trail.length > 0
-              ? () => onReverseRide({ lat: trail[0].lat, lng: trail[0].lng }, trail)
+              ? () => {
+                  haptic('medium', settings.haptics);
+                  onReverseRide({ lat: trail[0].lat, lng: trail[0].lng }, trail);
+                }
               : null
           }
         />
@@ -1194,6 +1222,8 @@ function ArrivedOverlay({
   onName,
   units,
   targetName,
+  target,
+  trail,
   onJournal,
   onNew,
   onReverse,
@@ -1206,6 +1236,8 @@ function ArrivedOverlay({
   onName: (s: string) => void;
   units: 'metric' | 'imperial';
   targetName: string | null;
+  target: LatLng;
+  trail: TrailPoint[];
   onJournal: () => void;
   onNew: () => void;
   onReverse: (() => void) | null;
@@ -1213,6 +1245,73 @@ function ArrivedOverlay({
   const dist = fmtDist(ridden, units);
   const avg = fmtSpeed(avgMps, units);
   const max = fmtSpeed(maxMps, units);
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mlMapRef = useRef<MlMap | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mlMapRef.current) return;
+    const m = new maplibregl.Map({
+      container: mapRef.current,
+      style: styleFor('sat'),
+      center: [target.lng, target.lat],
+      zoom: 13,
+      attributionControl: false,
+      interactive: false,
+    });
+    mlMapRef.current = m;
+    m.on('load', () => {
+      // Trail (green)
+      if (trail.length > 1) {
+        m.addSource('trip', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: trail.map((p) => [p.lng, p.lat]) },
+            properties: {},
+          },
+        });
+        m.addLayer({
+          id: 'trip-line',
+          type: 'line',
+          source: 'trip',
+          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.9 },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
+      }
+      // Target marker
+      const tg = document.createElement('div');
+      tg.style.cssText = 'position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.innerHTML = `
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 10px ${C.glow})">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
+        </svg>`;
+      new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(m);
+      // Start marker (если есть trail)
+      if (trail.length > 0) {
+        const start = trail[0];
+        const st = document.createElement('div');
+        st.style.cssText = `width:14px;height:14px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 8px ${C.okGlow};pointer-events:none`;
+        new maplibregl.Marker({ element: st, anchor: 'center' }).setLngLat([start.lng, start.lat]).addTo(m);
+      }
+      // FitBounds на trail+target
+      if (trail.length > 0) {
+        const lngs = [target.lng, ...trail.map((p) => p.lng)];
+        const lats = [target.lat, ...trail.map((p) => p.lat)];
+        m.fitBounds(
+          [
+            [Math.min(...lngs), Math.min(...lats)],
+            [Math.max(...lngs), Math.max(...lats)],
+          ],
+          { padding: 24, animate: false, maxZoom: 16 },
+        );
+      }
+    });
+    return () => {
+      m.remove();
+      mlMapRef.current = null;
+    };
+  }, [target, trail]);
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -1228,23 +1327,42 @@ function ArrivedOverlay({
         animation: 'fadeIn 280ms ease',
       }}
     >
-      <div style={{ flex: 1 }} />
+      <div style={{ flex: 1, minHeight: 8 }} />
+
+      {/* Mini-map: маршрут + цель */}
       <div
         style={{
-          width: 110,
-          height: 110,
-          borderRadius: '50%',
-          border: `2px solid ${C.target}`,
-          boxShadow: `0 0 40px ${C.glow}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 16,
+          position: 'relative',
+          width: '100%',
+          maxWidth: 360,
+          height: 180,
+          borderRadius: 14,
+          overflow: 'hidden',
+          border: `1px solid ${C.line2}`,
+          marginBottom: 14,
         }}
       >
-        <span style={{ fontSize: 50, color: C.target }}>✓</span>
+        <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} />
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            background: C.target,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: `0 0 16px ${C.glow}`,
+          }}
+        >
+          <span style={{ fontSize: 18, color: '#fff' }}>✓</span>
+        </div>
       </div>
-      <div style={{ fontFamily: F_DISP, fontSize: 30, fontWeight: 600, marginBottom: 6 }}>Прибыли!</div>
+
+      <div style={{ fontFamily: F_DISP, fontSize: 28, fontWeight: 600, marginBottom: 4 }}>Прибыли!</div>
       {targetName && (
         <div
           style={{

@@ -10,6 +10,7 @@ import type { LatLng } from './lib/geo';
 import type { Layer } from './lib/mapStyles';
 import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
+import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 
 export type Settings = {
   intervalSec: number; // 0..900 step 60 (0–15 мин, шаг 1 мин)
@@ -21,11 +22,8 @@ export type Settings = {
   showTrail: boolean;
 };
 
-export const VOICE_INTERVAL_MAX = 900; // 15 минут
-export const VOICE_INTERVAL_STEP = 60; // 1 минута
-
 const DEFAULT_SETTINGS: Settings = {
-  intervalSec: 900, // дефолт — каждые 15 минут
+  intervalSec: DEFAULT_VOICE_INTERVAL,
   units: 'metric',
   haptics: true,
   lang: (navigator.language || 'ru').toLowerCase().startsWith('de')
@@ -34,7 +32,7 @@ const DEFAULT_SETTINGS: Settings = {
     ? 'en'
     : 'ru',
   voiceURI: null,
-  layer: 'std',
+  layer: 'sat', // дефолт — спутник (по требованию)
   showTrail: true,
 };
 
