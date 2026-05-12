@@ -50,6 +50,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const [currentBox, setCurrentBox] = useState<LngLatBox>(box);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [hintHidden, setHintHidden] = useState(false);
+  const [alreadyCachedToast, setAlreadyCachedToast] = useState(false);
   const [checkedAutoSkip, setCheckedAutoSkip] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -222,12 +223,19 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const tooBig = total > MAX_TILES;
 
   // Auto-skip: один раз проверим, есть ли все нужные тайлы в кэше.
+  // Если всё уже есть — показываем тост «✓ Уже в кэше» 1.5 сек, потом идём дальше.
   useEffect(() => {
     if (checkedAutoSkip) return;
     if (!me) return; // подождём fit
     setCheckedAutoSkip(true);
     void allTilesCached(settings.layer, tilesPlanned.slice(0, 200)).then((allHave) => {
-      if (allHave && tilesPlanned.length <= 200) onDone();
+      if (allHave && tilesPlanned.length <= 200) {
+        setAlreadyCachedToast(true);
+        setTimeout(() => {
+          setAlreadyCachedToast(false);
+          onDone();
+        }, 1500);
+      }
     });
   }, [checkedAutoSkip, me, settings.layer, tilesPlanned, onDone]);
 
@@ -260,6 +268,35 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     <div style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
+
+      {/* Already-cached toast */}
+      {alreadyCachedToast && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(11,13,12,0.96)',
+            backdropFilter: 'blur(14px)',
+            border: `1px solid ${C.ok}`,
+            borderRadius: 14,
+            padding: '18px 28px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+            zIndex: 20,
+            animation: 'fadeIn 200ms ease',
+          }}
+        >
+          <span style={{ fontSize: 32 }}>✓</span>
+          <div style={{ fontFamily: F_DISP, fontSize: 15, fontWeight: 700, color: C.ok }}>Тайлы в кэше</div>
+          <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, letterSpacing: '0.12em' }}>
+            ЗАГРУЗКА НЕ НУЖНА
+          </div>
+        </div>
+      )}
 
       {/* Top card */}
       <div

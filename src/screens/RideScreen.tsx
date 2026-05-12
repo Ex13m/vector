@@ -1262,27 +1262,7 @@ function ArrivedOverlay({
     });
     mlMapRef.current = m;
 
-    // Маркеры добавляем сразу — не ждём load, чтоб появлялись даже при offline-тайлах.
     const lastTrailPt = trail.length > 0 ? trail[trail.length - 1] : null;
-    // Target — 1×1 anchor + centered children.
-    const tg = document.createElement('div');
-    tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
-    tg.innerHTML = `
-      <div style="position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.7"></div>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
-           style="position:absolute;left:50%;top:50%;margin:-11px 0 0 -11px;filter:drop-shadow(0 0 10px ${C.glow})">
-        <circle cx="12" cy="12" r="9"/>
-        <circle cx="12" cy="12" r="3" fill="${C.target}"/>
-      </svg>`;
-    new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(m);
-    // Start marker.
-    if (trail.length > 0) {
-      const start = trail[0];
-      const st = document.createElement('div');
-      st.style.cssText = `position:relative;width:1px;height:1px;pointer-events:none;overflow:visible`;
-      st.innerHTML = `<div style="position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 8px ${C.okGlow}"></div>`;
-      new maplibregl.Marker({ element: st, anchor: 'center' }).setLngLat([start.lng, start.lat]).addTo(m);
-    }
 
     m.on('load', () => {
       // Зелёный пунктирный трек.
@@ -1320,7 +1300,57 @@ function ArrivedOverlay({
           id: 'vector-line',
           type: 'line',
           source: 'vector',
-          paint: { 'line-color': C.target, 'line-width': 2, 'line-opacity': 0.75, 'line-dasharray': [3, 3] },
+          paint: { 'line-color': C.target, 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [3, 3] },
+        });
+      }
+      // Маркер цели — circle layer (рисуется на canvas, без DOM-позиционирования).
+      m.addSource('target-pt', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
+      });
+      // Пульс-кольцо (большой полупрозрачный круг).
+      m.addLayer({
+        id: 'target-halo',
+        type: 'circle',
+        source: 'target-pt',
+        paint: {
+          'circle-radius': 18,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': C.target,
+          'circle-stroke-opacity': 0.65,
+        },
+      });
+      // Внутренний заполненный круг (прицел).
+      m.addLayer({
+        id: 'target-dot',
+        type: 'circle',
+        source: 'target-pt',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': C.target,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': C.bg,
+          'circle-opacity': 0.95,
+        },
+      });
+      // Маркер старта.
+      if (trail.length > 0) {
+        const start = trail[0];
+        m.addSource('start-pt', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'Point', coordinates: [start.lng, start.lat] }, properties: {} },
+        });
+        m.addLayer({
+          id: 'start-dot',
+          type: 'circle',
+          source: 'start-pt',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': C.ok,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': C.bg,
+          },
         });
       }
     });
