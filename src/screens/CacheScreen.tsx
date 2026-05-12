@@ -89,6 +89,30 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const redrawVectorOverlay = useCallback(() => {
+    const node = vectorLineRef.current;
+    const map = mapRef.current;
+    if (!node || !map || !me) {
+      if (node) node.style.display = 'none';
+      return;
+    }
+    const a = map.project([me.lng, me.lat]);
+    const b = map.project([target.lng, target.lat]);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) {
+      node.style.display = 'none';
+      return;
+    }
+    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+    node.style.display = 'block';
+    node.style.left = `${a.x}px`;
+    node.style.top = `${a.y}px`;
+    node.style.width = `${len}px`;
+    node.style.transform = `rotate(${angleDeg}deg)`;
+  }, [me, target]);
+
   // Слушатели карты — пересоздаются когда меняется redrawVectorOverlay / setCurrentBox.
   useEffect(() => {
     const map = mapRef.current;
@@ -142,30 +166,6 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   useEffect(() => {
     if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
   }, [settings.layer]);
-
-  const redrawVectorOverlay = useCallback(() => {
-    const node = vectorLineRef.current;
-    const map = mapRef.current;
-    if (!node || !map || !me) {
-      if (node) node.style.display = 'none';
-      return;
-    }
-    const a = map.project([me.lng, me.lat]);
-    const b = map.project([target.lng, target.lat]);
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 8) {
-      node.style.display = 'none';
-      return;
-    }
-    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-    node.style.display = 'block';
-    node.style.left = `${a.x}px`;
-    node.style.top = `${a.y}px`;
-    node.style.width = `${len}px`;
-    node.style.transform = `rotate(${angleDeg}deg)`;
-  }, [me, target]);
 
   useEffect(() => {
     redrawVectorOverlay();
