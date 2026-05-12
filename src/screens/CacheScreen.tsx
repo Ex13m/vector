@@ -32,8 +32,7 @@ type Props = {
 
 const TILE_ZOOMS = [12, 13, 14, 15, 16];
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export default function CacheScreen({ settings, target, targetName: _targetName, box, onSkip, onDone, onBack }: Props) {
+export default function CacheScreen({ settings, target, box, onSkip, onDone, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
