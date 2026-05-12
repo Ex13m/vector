@@ -17,45 +17,76 @@ export function speak(text: string, lang: VoiceLang = 'ru', voiceURI?: string | 
   speechSynthesis.speak(utter);
 }
 
-export function buildPhrase(opts: {
-  lang: VoiceLang;
-  clock: number;
-  distM: number;
-  reverse?: boolean;
-}): string {
-  const { lang, clock, distM, reverse } = opts;
-  const distKm = distM / 1000;
-  const distStr =
-    lang === 'ru'
-      ? distM < 1000
-        ? `${Math.round(distM)} метров`
-        : `${distKm.toFixed(1)} километров`
-      : lang === 'de'
-      ? distM < 1000
-        ? `${Math.round(distM)} Meter`
-        : `${distKm.toFixed(1)} Kilometer`
-      : distM < 1000
-      ? `${Math.round(distM)} meters`
-      : `${distKm.toFixed(1)} kilometers`;
+function clockWords(clockHM: string, lang: VoiceLang): string {
+  const [hStr, mStr] = clockHM.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
   if (lang === 'ru') {
-    return reverse
-      ? `От точки ${distStr}, на ${clock} часов`
-      : `Цель на ${clock} часов, ${distStr}`;
+    if (m === 0) return `на ${h} часов`;
+    return `на ${h} часов ${m} минут`;
   }
   if (lang === 'de') {
-    return reverse
-      ? `${distStr} vom Start, ${clock} Uhr`
-      : `Ziel auf ${clock} Uhr, ${distStr}`;
+    if (m === 0) return `${h} Uhr`;
+    return `${h} Uhr ${m}`;
   }
-  return reverse
-    ? `${distStr} from start, ${clock} o'clock`
-    : `Target at ${clock} o'clock, ${distStr}`;
+  if (m === 0) return `${h} o'clock`;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function distWords(distM: number, lang: VoiceLang): string {
+  if (lang === 'ru') {
+    if (distM < 1000) return `${Math.round(distM)} метров`;
+    const km = Math.floor(distM / 1000);
+    const m = Math.round((distM % 1000) / 10) * 10;
+    if (m === 0) return `${km} километров`;
+    return `${km} километров ${m} метров`;
+  }
+  if (lang === 'de') {
+    if (distM < 1000) return `${Math.round(distM)} Meter`;
+    const km = Math.floor(distM / 1000);
+    const m = Math.round((distM % 1000) / 10) * 10;
+    if (m === 0) return `${km} Kilometer`;
+    return `${km} Kilometer ${m} Meter`;
+  }
+  if (distM < 1000) return `${Math.round(distM)} metres`;
+  const km = Math.floor(distM / 1000);
+  const m = Math.round((distM % 1000) / 10) * 10;
+  if (m === 0) return `${km} kilometres`;
+  return `${km} kilometres ${m} metres`;
+}
+
+function etaWords(etaMin: number, lang: VoiceLang): string {
+  if (lang === 'ru') return `ехать ${etaMin} минут`;
+  if (lang === 'de') return `noch ${etaMin} Minuten`;
+  return `${etaMin} minutes to go`;
+}
+
+export function buildPhrase(opts: {
+  lang: VoiceLang;
+  clockHM: string;
+  distM: number;
+  etaMin: number | null;
+  reverse?: boolean;
+}): string {
+  const { lang, clockHM, distM, etaMin, reverse } = opts;
+  const clock = clockWords(clockHM, lang);
+  const dist = distWords(distM, lang);
+  const parts: string[] = [];
+  if (lang === 'ru') {
+    parts.push(reverse ? `От точки, ${clock}` : `Цель ${clock}`);
+  } else if (lang === 'de') {
+    parts.push(reverse ? `Vom Start, ${clock}` : `Ziel auf ${clock}`);
+  } else {
+    parts.push(reverse ? `From start, ${clock}` : `Target at ${clock}`);
+  }
+  parts.push(dist);
+  if (etaMin != null && etaMin > 0 && etaMin < 600) parts.push(etaWords(etaMin, lang));
+  return parts.join(', ');
 }
 
 export function listVoices(lang: VoiceLang = 'ru'): SpeechSynthesisVoice[] {
   if (!('speechSynthesis' in window)) return [];
-  const code = lang;
-  return speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(code));
+  return speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(lang));
 }
 
 export function onVoicesReady(cb: () => void): () => void {

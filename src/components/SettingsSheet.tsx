@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { C, F_DISP, F_MONO } from '../theme';
 import type { Settings } from '../App';
+import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP } from '../App';
 import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
 
 type Props = {
@@ -20,9 +21,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
   const intervalLabel =
     settings.intervalSec === 0
       ? 'off'
-      : settings.intervalSec >= 60
-      ? `${Math.floor(settings.intervalSec / 60)}:${String(settings.intervalSec % 60).padStart(2, '0')} min`
-      : `${settings.intervalSec} sec`;
+      : `${Math.round(settings.intervalSec / 60)} min`;
 
   return (
     <div
@@ -96,16 +95,17 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
           <input
             type="range"
             min={0}
-            max={600}
-            step={10}
+            max={VOICE_INTERVAL_MAX}
+            step={VOICE_INTERVAL_STEP}
             value={settings.intervalSec}
             onChange={(e) => onChange({ intervalSec: Number(e.target.value) })}
             style={{ width: '100%', accentColor: C.target, marginTop: 8 }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 4 }}>
-            <span>0</span>
+            <span>off</span>
             <span>5</span>
-            <span>10 min</span>
+            <span>10</span>
+            <span>15 min</span>
           </div>
         </Section>
 

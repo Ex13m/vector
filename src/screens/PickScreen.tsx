@@ -1,13 +1,14 @@
 // 01 Pick — выбор цели на карте.
-// Layout по скриншотам: "01 / Цель" lead, big "Where to?" title,
-// "Search place" input, постоянная панель слоёв справа, бейдж ★ N · M слева,
-// "TAP THE MAP" hint снизу когда цели нет, Saved bottom-sheet с табами
-// Цели/Поездки + trip resume + GPX.
+// Дизайн: full-bleed карта, компактный topbar (поиск + слой + ★),
+// подсказки внутри той же капсулы что поиск, оранжевый пунктир «вы → цель»
+// с пилюлей расстояния, ромб-стрелка «вы» (поворот на цель),
+// оранжевый прицел цели с pulse + drag по long-press,
+// карточка снизу с reverse-geocode названием.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
 import { styleFor, type Layer } from '../lib/mapStyles';
-import { searchPlace, type GeoResult } from '../lib/geocoder';
+import { searchPlace, reverseGeocode, type GeoResult } from '../lib/geocoder';
 import {
   listTargets,
   saveTarget,
@@ -19,7 +20,7 @@ import {
   type Trip,
   type TrailPoint,
 } from '../lib/storage';
-import { distanceM, fmtDist, type LatLng } from '../lib/geo';
+import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -28,24 +29,45 @@ type Props = {
   settings: Settings;
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
-  onConfirm: (target: LatLng, box: LngLatBox) => void;
+  onConfirm: (target: LatLng, name: string | null, box: LngLatBox) => void;
   onResumeTrip: (target: LatLng, trail: TrailPoint[]) => void;
+  /** Открыть Saved sheet сразу на табе «Поездки» (из Журнала на Arrived). */
+  openJournal?: boolean;
+  onJournalConsumed?: () => void;
 };
 
-export default function PickScreen({ settings, onSettings, onSettingsChange, onConfirm, onResumeTrip }: Props) {
+export default function PickScreen({
+  settings,
+  onSettings,
+  onSettingsChange,
+  onConfirm,
+  onResumeTrip,
+  openJournal = false,
+  onJournalConsumed,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
+  const meArrowRef = useRef<SVGElement | null>(null);
+  const vectorLineRef = useRef<HTMLDivElement | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [target, setTarget] = useState<LatLng | null>(null);
+  const [targetName, setTargetName] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<GeoResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<GeoResult[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [showFavSheet, setShowFavSheet] = useState(false);
+  const [favSheetTab, setFavSheetTab] = useState<'targets' | 'trips'>('targets');
+  const [layerOpen, setLayerOpen] = useState(false);
   const [saved, setSaved] = useState<SavedTarget[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [showSheet, setShowSheet] = useState(false);
+
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const reverseAbortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<number | null>(null);
+  const dragTimerRef = useRef<number | null>(null);
 
   // GPS — пользовательская точка.
   useEffect(() => {
@@ -66,12 +88,17 @@ export default function PickScreen({ settings, onSettings, onSettingsChange, onC
       container: containerRef.current,
       style: styleFor(settings.layer),
       center: [start.lng, start.lat],
-      zoom: me ? 16 : 4,
+      zoom: me ? 15 : 4,
       attributionControl: { compact: true },
     });
     mapRef.current = map;
 
-    map.on('click', (e) => setTarget({ lat: e.lngLat.lat, lng: e.lngLat.lng }));
+    map.on('click', (e) => {
+      // Closе подсказки и поповеры на тап по карте.
+      setSuggestOpen(false);
+      setLayerOpen(false);
+      setTarget({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+    });
 
     return () => {
       map.remove();
@@ -80,65 +107,213 @@ export default function PickScreen({ settings, onSettings, onSettingsChange, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Когда узнали me — letим к нему один раз.
+  // Слой.
   useEffect(() => {
-    if (!mapRef.current || !me) return;
+    if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
+  }, [settings.layer]);
+
+  // Маркер «вы» — ромб-стрелка с поворотом на цель (или фиксированный «вверх» если нет цели).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      el.style.cssText = `width:18px;height:18px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 0 4px rgba(72,222,148,0.18),0 0 14px rgba(72,222,148,0.55)`;
-      meMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat([me.lng, me.lat]).addTo(mapRef.current);
-      mapRef.current.flyTo({ center: [me.lng, me.lat], zoom: 16, duration: 800 });
+      el.style.cssText =
+        'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.innerHTML = `
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" style="transform: rotate(0deg);transition: transform 200ms ease-out">
+          <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>`;
+      meArrowRef.current = el.querySelector('svg');
+      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
+      map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
   }, [me]);
 
-  // Смена слоя.
+  // Поворот стрелки на цель.
   useEffect(() => {
-    if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
-  }, [settings.layer]);
+    const svg = meArrowRef.current;
+    if (!svg) return;
+    let deg = 0;
+    if (me && target) deg = bearingTo(me, target);
+    (svg as unknown as HTMLElement).style.transform = `rotate(${deg}deg)`;
+  }, [me, target]);
 
-  // Маркер цели.
+  // Маркер цели + drag по long-press.
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
     targetMarkerRef.current?.remove();
     targetMarkerRef.current = null;
     if (!target) return;
     const el = document.createElement('div');
-    el.style.cssText = `position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center`;
+    el.style.cssText = 'position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:grab';
     el.innerHTML = `
-      <div style="position:absolute;width:34px;height:34px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-      <div style="position:relative;width:24px;height:24px;border-radius:50%;background:rgba(255,107,26,0.2);border:2px solid ${C.target};box-shadow:0 0 16px ${C.glow}"></div>`;
-    targetMarkerRef.current = new maplibregl.Marker({ element: el })
-      .setLngLat([target.lng, target.lat])
-      .addTo(mapRef.current);
+      <div style="position:absolute;width:48px;height:48px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2" style="filter:drop-shadow(0 0 10px ${C.glow})">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="12" r="5"/>
+        <circle cx="12" cy="12" r="2" fill="${C.target}"/>
+        <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+        <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+      </svg>`;
+    const marker = new maplibregl.Marker({ element: el, draggable: false }).setLngLat([target.lng, target.lat]).addTo(map);
+    targetMarkerRef.current = marker;
+
+    // Long-press → разрешить drag
+    const onDown = () => {
+      if (dragTimerRef.current) window.clearTimeout(dragTimerRef.current);
+      dragTimerRef.current = window.setTimeout(() => {
+        marker.setDraggable(true);
+        el.style.cursor = 'grabbing';
+        if (navigator.vibrate) navigator.vibrate(30);
+      }, 380);
+    };
+    const onUp = () => {
+      if (dragTimerRef.current) {
+        window.clearTimeout(dragTimerRef.current);
+        dragTimerRef.current = null;
+      }
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointerleave', onUp);
+    marker.on('dragend', () => {
+      const ll = marker.getLngLat();
+      marker.setDraggable(false);
+      el.style.cursor = 'grab';
+      setTarget({ lat: ll.lat, lng: ll.lng });
+    });
+
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointerleave', onUp);
+      marker.remove();
+    };
   }, [target]);
 
-  // Загрузка saved при открытии шита.
+  // Reverse-geocode названия цели.
+  useEffect(() => {
+    setTargetName(null);
+    if (!target) return;
+    reverseAbortRef.current?.abort();
+    const ac = new AbortController();
+    reverseAbortRef.current = ac;
+    void reverseGeocode(target.lat, target.lng, ac.signal).then((n) => {
+      if (!ac.signal.aborted) setTargetName(n);
+    });
+    return () => ac.abort();
+  }, [target]);
+
+  // Загрузка saved/trips на открытие шита.
   useEffect(() => {
     void listTargets().then(setSaved);
     void listTrips().then(setTrips);
-  }, [showSheet]);
+  }, [showFavSheet]);
 
-  async function doSearch() {
-    if (!search.trim()) return;
-    setSearching(true);
-    const r = await searchPlace(search.trim());
-    setSearchResults(r);
-    setSearching(false);
+  // Открыть sheet на табе «Поездки» если пришли с кнопки «Журнал».
+  useEffect(() => {
+    if (!openJournal) return;
+    setFavSheetTab('trips');
+    setShowFavSheet(true);
+    onJournalConsumed?.();
+  }, [openJournal, onJournalConsumed]);
+
+  // Debounced suggestions.
+  useEffect(() => {
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    const q = search.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    debounceRef.current = window.setTimeout(() => {
+      searchAbortRef.current?.abort();
+      const ac = new AbortController();
+      searchAbortRef.current = ac;
+      void searchPlace(q, ac.signal).then((r) => {
+        if (!ac.signal.aborted) setSuggestions(r);
+      });
+    }, 400);
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
+  // Esc → скрыть подсказки.
+  useEffect(() => {
+    if (!suggestOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSuggestOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [suggestOpen]);
+
+  // Vector-overlay в реальных пиксельных координатах (SVG поверх карты).
+  const redrawVectorOverlay = useCallback(() => {
+    const node = vectorLineRef.current;
+    const map = mapRef.current;
+    if (!node || !map || !me || !target) {
+      if (node) node.style.display = 'none';
+      return;
+    }
+    const a = map.project([me.lng, me.lat]);
+    const b = map.project([target.lng, target.lat]);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) {
+      node.style.display = 'none';
+      return;
+    }
+    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+    node.style.display = 'block';
+    node.style.left = `${a.x}px`;
+    node.style.top = `${a.y}px`;
+    node.style.width = `${len}px`;
+    node.style.transform = `rotate(${angleDeg}deg)`;
+  }, [me, target]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    redrawVectorOverlay();
+    map.on('move', redrawVectorOverlay);
+    map.on('zoom', redrawVectorOverlay);
+    return () => {
+      map.off('move', redrawVectorOverlay);
+      map.off('zoom', redrawVectorOverlay);
+    };
+  }, [redrawVectorOverlay]);
+
+  const distM = me && target ? distanceM(me, target) : 0;
+  const dist = me && target ? fmtDist(distM, settings.units) : null;
+
+  function pickSuggestion(r: GeoResult) {
+    setTarget({ lat: r.lat, lng: r.lng });
+    setTargetName(r.name);
+    setSuggestions([]);
+    setSearch('');
+    setSuggestOpen(false);
+    mapRef.current?.flyTo({ center: [r.lng, r.lat], zoom: 14, duration: 800 });
   }
 
-  function flyTo(p: LatLng, zoom = 14) {
-    mapRef.current?.flyTo({ center: [p.lng, p.lat], zoom, duration: 800 });
-    setTarget(p);
-    setSearchResults([]);
-    setSearch('');
+  function pickSavedTarget(s: SavedTarget) {
+    setTarget({ lat: s.lat, lng: s.lng });
+    setTargetName(s.name);
+    setShowFavSheet(false);
+    mapRef.current?.flyTo({ center: [s.lng, s.lat], zoom: 14, duration: 800 });
   }
 
   function start() {
     if (!target || !mapRef.current) return;
     const b = mapRef.current.getBounds();
-    onConfirm(target, {
+    onConfirm(target, targetName, {
       west: b.getWest(),
       south: b.getSouth(),
       east: b.getEast(),
@@ -148,7 +323,8 @@ export default function PickScreen({ settings, onSettings, onSettingsChange, onC
 
   async function saveCurrent() {
     if (!target) return;
-    const name = prompt('Название точки:', '');
+    const def = targetName ?? 'Точка';
+    const name = window.prompt('Название точки:', def);
     if (!name) return;
     await saveTarget({
       id: String(Date.now()),
@@ -160,296 +336,263 @@ export default function PickScreen({ settings, onSettings, onSettingsChange, onC
     setSaved(await listTargets());
   }
 
-  const distM = me && target ? distanceM(me, target) : 0;
-  const dist = me && target ? fmtDist(distM, settings.units) : null;
-
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: C.bg,
-        color: C.ink,
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* HEAD: статус "01 / Цель", "Where to?", search */}
+    <div style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}>
+      {/* Map fills the screen */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+
+      {/* Vector «вы → цель» — оранжевый пунктир + пилюля по центру (CSS overlay) */}
+      <div
+        ref={vectorLineRef}
+        style={{
+          position: 'absolute',
+          height: 0,
+          borderTop: `2.5px dashed ${C.target}`,
+          opacity: 0.85,
+          transformOrigin: '0 50%',
+          pointerEvents: 'none',
+          display: 'none',
+          zIndex: 3,
+        }}
+      />
+      {me && target && dist && (
+        <DistancePill mapRef={mapRef} me={me} target={target} text={`${dist.v} ${dist.u}`} />
+      )}
+
+      {/* Top bar: поиск + слой + ★ */}
       <div
         style={{
-          padding: 'calc(14px + env(safe-area-inset-top)) 16px 12px',
-          background: C.bg,
-          zIndex: 6,
-          position: 'relative',
+          position: 'absolute',
+          top: 'calc(14px + env(safe-area-inset-top))',
+          left: 12,
+          right: 12,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          zIndex: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <div
-            style={{
-              fontFamily: F_MONO,
-              fontSize: 11,
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              color: C.inkDim,
-            }}
-          >
-            01 / Цель
-          </div>
-          <button
-            onClick={onSettings}
-            aria-label="settings"
-            style={{
-              width: 38,
-              height: 38,
-              background: 'transparent',
-              border: `1px solid ${C.line2}`,
-              borderRadius: 10,
-              color: C.ink,
-              fontSize: 18,
-            }}
-          >
-            ⚙
-          </button>
-        </div>
+        {/* Search capsule (с подсказками внутри) */}
         <div
           style={{
-            fontFamily: F_DISP,
-            fontSize: 32,
-            fontWeight: 600,
-            letterSpacing: '-0.02em',
-            color: C.ink,
-            marginBottom: 14,
+            flex: 1,
+            background: 'rgba(17,20,19,0.85)',
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${C.line2}`,
+            borderRadius: 10,
+            overflow: 'hidden',
           }}
+          onClick={() => setSuggestOpen(true)}
         >
-          Where to?
-        </div>
-        <div style={{ position: 'relative' }}>
-          <span
-            style={{
-              position: 'absolute',
-              left: 14,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: C.inkDim,
-              fontSize: 16,
-              pointerEvents: 'none',
-            }}
-          >
-            ⌕
-          </span>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') doSearch();
-            }}
-            placeholder="Search place"
-            style={{
-              width: '100%',
-              height: 48,
-              padding: '0 14px 0 40px',
-              background: C.bg2,
-              border: `1px solid ${C.line2}`,
-              borderRadius: 12,
-              color: C.ink,
-              fontFamily: F_DISP,
-              fontSize: 14,
-            }}
-          />
-          {searching && (
-            <span
-              style={{
-                position: 'absolute',
-                right: 14,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: C.target,
-                fontFamily: F_MONO,
-                fontSize: 11,
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px' }}>
+            <SearchIcon active={search.length > 0} />
+            <input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setSuggestOpen(true);
               }}
-            >
-              …
-            </span>
+              onFocus={() => setSuggestOpen(true)}
+              placeholder="Введите цель"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: C.ink,
+                fontFamily: F_DISP,
+                fontSize: 13,
+                minWidth: 0,
+              }}
+            />
+          </div>
+          {suggestOpen && suggestions.length > 0 && (
+            <div style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(11,13,12,0.96)' }}>
+              {suggestions.map((r, i) => (
+                <SuggestionRow
+                  key={`${r.lat}-${r.lng}-${i}`}
+                  query={search.trim()}
+                  result={r}
+                  distFromMe={me ? distanceM(me, { lat: r.lat, lng: r.lng }) : null}
+                  units={settings.units}
+                  divider={i < suggestions.length - 1}
+                  onClick={() => pickSuggestion(r)}
+                />
+              ))}
+            </div>
           )}
         </div>
-        {searchResults.length > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 16,
-              right: 16,
-              marginTop: 6,
-              maxHeight: 320,
-              overflowY: 'auto',
-              background: C.bg2,
-              border: `1px solid ${C.line2}`,
-              borderRadius: 12,
-              boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
-              zIndex: 12,
+
+        {/* Layer button */}
+        <div style={{ position: 'relative' }}>
+          <IconButton
+            onClick={() => {
+              setLayerOpen((v) => !v);
+              setSuggestOpen(false);
             }}
+            active={layerOpen}
+            ariaLabel="layer"
           >
-            {searchResults.map((r, i) => (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="2,8 12,3 22,8 12,13" />
+              <polyline points="2,16 12,21 22,16" />
+            </svg>
+          </IconButton>
+          {layerOpen && (
+            <LayerPopover
+              layer={settings.layer}
+              onPick={(l) => {
+                onSettingsChange({ layer: l });
+                setLayerOpen(false);
+              }}
+            />
+          )}
+        </div>
+
+        {/* Star (favorites) */}
+        <IconButton
+          onClick={() => {
+            setShowFavSheet(true);
+            setSuggestOpen(false);
+            setLayerOpen(false);
+          }}
+          ariaLabel="favorites"
+          color={C.target}
+        >
+          ★
+        </IconButton>
+      </div>
+
+      {/* Settings (внизу слева, не в спеке — но нужен доступ) */}
+      <button
+        onClick={onSettings}
+        aria-label="settings"
+        style={{
+          position: 'absolute',
+          left: 12,
+          bottom: 'calc(96px + env(safe-area-inset-bottom))',
+          width: 38,
+          height: 38,
+          background: 'rgba(17,20,19,0.85)',
+          backdropFilter: 'blur(10px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 10,
+          color: C.ink,
+          fontSize: 16,
+          zIndex: 5,
+        }}
+      >
+        ⚙
+      </button>
+
+      {/* Bottom card / CTA */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          right: 12,
+          bottom: 'calc(12px + env(safe-area-inset-bottom))',
+          background: 'rgba(17,20,19,0.96)',
+          backdropFilter: 'blur(14px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 12,
+          padding: '12px 14px',
+          zIndex: 8,
+        }}
+      >
+        {target ? (
+          <>
+            <div
+              style={{
+                fontFamily: F_MONO,
+                fontSize: 9.5,
+                color: C.inkDim,
+                letterSpacing: '0.18em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Цель выбрана
+            </div>
+            <div
+              style={{
+                color: C.ink,
+                fontFamily: F_DISP,
+                fontSize: 14,
+                fontWeight: 500,
+                margin: '4px 0 10px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {targetName ?? 'Точка на карте'} {dist && <span style={{ color: C.inkDim }}>· {dist.v} {dist.u}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
-                key={i}
-                onClick={() => flyTo({ lat: r.lat, lng: r.lng })}
+                onClick={saveCurrent}
+                aria-label="save"
                 style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '12px 14px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: i < searchResults.length - 1 ? `1px solid ${C.line}` : 'none',
-                  color: C.ink,
-                  fontFamily: F_DISP,
-                  fontSize: 13,
+                  width: 48,
+                  height: 44,
+                  background: C.bg2,
+                  border: `1px solid ${C.line2}`,
+                  color: C.target,
+                  borderRadius: 10,
+                  fontSize: 18,
                 }}
               >
-                {r.display_name}
+                ★
               </button>
-            ))}
+              <button
+                onClick={start}
+                style={{
+                  flex: 1,
+                  height: 44,
+                  background: C.target,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  fontFamily: F_DISP,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                  boxShadow: `0 0 24px ${C.glow}`,
+                }}
+              >
+                Старт →
+              </button>
+            </div>
+          </>
+        ) : (
+          <div
+            style={{
+              height: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontFamily: F_MONO,
+              fontSize: 11,
+              letterSpacing: '0.18em',
+              color: C.inkDim,
+              textTransform: 'uppercase',
+            }}
+          >
+            ⊕&nbsp; TAP THE MAP
           </div>
         )}
       </div>
 
-      {/* MAP + overlays */}
-      <div style={{ flex: 1, position: 'relative' }}>
-        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-
-        {/* Saved badge — слева сверху над картой */}
-        <button
-          onClick={() => setShowSheet(true)}
-          style={{
-            position: 'absolute',
-            left: 12,
-            top: 12,
-            zIndex: 5,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            background: 'rgba(11,13,12,0.85)',
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 12,
-            padding: '8px 12px',
-            fontFamily: F_MONO,
-            fontSize: 13,
-            letterSpacing: '0.06em',
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <span style={{ color: C.target }}>★</span>
-          <span>{saved.length}</span>
-          <span style={{ color: C.inkDim }}>·</span>
-          <span style={{ color: C.ink }}>{trips.length}</span>
-        </button>
-
-        {/* Layer panel — постоянно видна справа */}
-        <LayerPanel layer={settings.layer} onLayer={(l) => onSettingsChange({ layer: l })} />
-
-        {/* Bottom hint / preview */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            padding: '14px 16px calc(18px + env(safe-area-inset-bottom))',
-            background: 'linear-gradient(to top, rgba(10,12,11,0.95) 60%, rgba(10,12,11,0.0) 100%)',
-            zIndex: 4,
-          }}
-        >
-          {target ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  fontFamily: F_MONO,
-                  fontSize: 11,
-                  letterSpacing: '0.16em',
-                  textTransform: 'uppercase',
-                  color: C.inkDim,
-                }}
-              >
-                <span>Цель выбрана</span>
-                {dist && (
-                  <span style={{ color: C.target }}>
-                    {dist.v} {dist.u}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={saveCurrent}
-                  aria-label="save"
-                  style={{
-                    width: 56,
-                    height: 56,
-                    background: C.bg2,
-                    border: `1px solid ${C.line2}`,
-                    color: C.ink,
-                    borderRadius: 12,
-                    fontSize: 22,
-                  }}
-                >
-                  ★
-                </button>
-                <button
-                  onClick={start}
-                  style={{
-                    flex: 1,
-                    height: 56,
-                    background: C.target,
-                    color: C.targetInk,
-                    border: 'none',
-                    borderRadius: 12,
-                    fontFamily: F_DISP,
-                    fontSize: 16,
-                    fontWeight: 700,
-                    letterSpacing: '0.02em',
-                    boxShadow: `0 0 24px ${C.glow}`,
-                  }}
-                >
-                  Старт →
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                height: 48,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontFamily: F_MONO,
-                fontSize: 12,
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase',
-                color: C.inkDim,
-              }}
-            >
-              ⊕&nbsp; TAP THE MAP
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Saved bottom-sheet */}
-      {showSheet && (
+      {/* Favorites sheet */}
+      {showFavSheet && (
         <SavedSheet
           saved={saved}
           trips={trips}
           settings={settings}
-          onClose={() => setShowSheet(false)}
-          onPickTarget={(t) => {
-            flyTo({ lat: t.lat, lng: t.lng });
-            setShowSheet(false);
-          }}
+          initialTab={favSheetTab}
+          onClose={() => setShowFavSheet(false)}
+          onPickTarget={pickSavedTarget}
           onResumeTrip={(trip) => {
-            setShowSheet(false);
+            setShowFavSheet(false);
             if (trip.trail.length > 0) {
               const start = trip.trail[0];
               onResumeTrip({ lat: start.lat, lng: start.lng }, trip.trail);
@@ -463,35 +606,160 @@ export default function PickScreen({ settings, onSettings, onSettingsChange, onC
             await deleteTrip(id);
             setTrips(await listTrips());
           }}
+          onSaveCurrent={target ? saveCurrent : null}
         />
       )}
     </div>
   );
 }
 
-function LayerPanel({ layer, onLayer }: { layer: Layer; onLayer: (l: Layer) => void }) {
+function SearchIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={active ? C.target : C.inkDim} strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function IconButton({
+  onClick,
+  active,
+  ariaLabel,
+  color,
+  children,
+}: {
+  onClick: () => void;
+  active?: boolean;
+  ariaLabel: string;
+  color?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={ariaLabel}
+      style={{
+        width: 38,
+        height: 38,
+        background: 'rgba(17,20,19,0.85)',
+        backdropFilter: 'blur(10px)',
+        border: `1px solid ${active ? C.target : C.line2}`,
+        borderRadius: 10,
+        color: color ?? (active ? C.target : C.ink),
+        fontSize: 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SuggestionRow({
+  query,
+  result,
+  distFromMe,
+  units,
+  divider,
+  onClick,
+}: {
+  query: string;
+  result: GeoResult;
+  distFromMe: number | null;
+  units: 'metric' | 'imperial';
+  divider: boolean;
+  onClick: () => void;
+}) {
+  const distFmt = distFromMe != null ? fmtDist(distFromMe, units) : null;
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        padding: '10px 12px',
+        background: 'transparent',
+        border: 'none',
+        borderBottom: divider ? `1px solid ${C.line}` : 'none',
+        color: C.ink,
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.target} strokeWidth="2" style={{ flexShrink: 0 }}>
+          <circle cx="12" cy="10" r="3" />
+          <path d="M12 2C8 2 5 5 5 10c0 5 7 12 7 12s7-7 7-12c0-5-3-8-7-8z" />
+        </svg>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: F_DISP, fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.3 }}>
+            <Highlight text={result.name} query={query} />
+          </div>
+          <div
+            style={{
+              fontFamily: F_MONO,
+              fontSize: 10,
+              color: C.inkDim,
+              marginTop: 2,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {result.context}
+            {distFmt && (
+              <>
+                {result.context && ' · '}
+                {distFmt.v} {distFmt.u}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const q = query.toLowerCase();
+  const t = text.toLowerCase();
+  const idx = t.indexOf(q);
+  if (idx < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <b style={{ color: C.target, fontWeight: 700 }}>{text.slice(idx, idx + query.length)}</b>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+function LayerPopover({ layer, onPick }: { layer: Layer; onPick: (l: Layer) => void }) {
   const items: Array<{ v: Layer; l: string }> = [
-    { v: 'std', l: 'STANDARD' },
-    { v: 'sat', l: 'SATELLITE' },
-    { v: 'topo', l: 'TOPO' },
-    { v: 'tour', l: 'TOURING' },
+    { v: 'std', l: 'Карта' },
+    { v: 'sat', l: 'Спутник' },
+    { v: 'topo', l: 'Топо' },
+    { v: 'tour', l: 'Турист' },
   ];
   return (
     <div
+      onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
-        right: 12,
-        top: 12,
-        zIndex: 5,
-        background: 'rgba(11,13,12,0.85)',
+        right: 0,
+        top: 46,
+        width: 140,
+        background: 'rgba(11,13,12,0.96)',
+        backdropFilter: 'blur(10px)',
         border: `1px solid ${C.line2}`,
         borderRadius: 12,
         padding: 4,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-        backdropFilter: 'blur(8px)',
-        minWidth: 110,
+        boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
       }}
     >
       {items.map((it) => {
@@ -499,18 +767,21 @@ function LayerPanel({ layer, onLayer }: { layer: Layer; onLayer: (l: Layer) => v
         return (
           <button
             key={it.v}
-            onClick={() => onLayer(it.v)}
+            onClick={() => onPick(it.v)}
             style={{
-              padding: '8px 12px',
-              border: 'none',
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 10px',
               borderRadius: 8,
+              border: 'none',
               background: active ? C.target : 'transparent',
-              color: active ? C.targetInk : C.ink,
+              color: active ? '#fff' : C.ink,
               fontFamily: F_MONO,
               fontSize: 11,
               fontWeight: active ? 700 : 500,
-              letterSpacing: '0.12em',
-              textAlign: 'center',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
             }}
           >
             {it.l}
@@ -521,19 +792,92 @@ function LayerPanel({ layer, onLayer }: { layer: Layer; onLayer: (l: Layer) => v
   );
 }
 
+function DistancePill({
+  mapRef,
+  me,
+  target,
+  text,
+}: {
+  mapRef: React.MutableRefObject<MlMap | null>;
+  me: LatLng;
+  target: LatLng;
+  text: string;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number; angle: number } | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const recompute = () => {
+      const a = map.project([me.lng, me.lat]);
+      const b = map.project([target.lng, target.lat]);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      let ang = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      if (ang > 90) ang -= 180;
+      if (ang < -90) ang += 180;
+      setPos({ x: mid.x, y: mid.y, angle: ang });
+    };
+    recompute();
+    map.on('move', recompute);
+    map.on('zoom', recompute);
+    return () => {
+      map.off('move', recompute);
+      map.off('zoom', recompute);
+    };
+  }, [mapRef, me, target]);
+  if (!pos) return null;
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: pos.x,
+        top: pos.y,
+        transform: `translate(-50%, -50%) rotate(${pos.angle}deg)`,
+        background: C.bg,
+        border: `1.5px solid ${C.target}`,
+        borderRadius: 999,
+        padding: '4px 12px',
+        fontFamily: F_MONO,
+        fontSize: 11,
+        fontWeight: 600,
+        color: C.target,
+        zIndex: 4,
+        pointerEvents: 'none',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+// ─── Saved sheet (избранное + поездки) ──────────────────────────────────────
+
 type SheetProps = {
   saved: SavedTarget[];
   trips: Trip[];
   settings: Settings;
+  initialTab?: 'targets' | 'trips';
   onClose: () => void;
   onPickTarget: (t: SavedTarget) => void;
   onResumeTrip: (trip: Trip) => void;
   onRemoveTarget: (id: string) => void;
   onRemoveTrip: (id: string) => void;
+  onSaveCurrent: (() => void) | null;
 };
 
-function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTrip, onRemoveTarget, onRemoveTrip }: SheetProps) {
-  const [tab, setTab] = useState<'targets' | 'trips'>('targets');
+function SavedSheet({
+  saved,
+  trips,
+  settings,
+  initialTab = 'targets',
+  onClose,
+  onPickTarget,
+  onResumeTrip,
+  onRemoveTarget,
+  onRemoveTrip,
+  onSaveCurrent,
+}: SheetProps) {
+  const [tab, setTab] = useState<'targets' | 'trips'>(initialTab);
 
   function downloadGpx(trip: Trip) {
     const xml = tripToGpx(trip);
@@ -565,7 +909,7 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
-          maxHeight: '80vh',
+          maxHeight: '82vh',
           background: C.bg,
           borderTop: `1px solid ${C.line2}`,
           borderRadius: '20px 20px 0 0',
@@ -594,7 +938,6 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
           </button>
         </div>
 
-        {/* Tabs */}
         <div
           style={{
             display: 'flex',
@@ -605,15 +948,15 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
             marginBottom: 14,
           }}
         >
-          {[
+          {([
             { key: 'targets', label: `Цели · ${saved.length}` },
             { key: 'trips', label: `Поездки · ${trips.length}` },
-          ].map((t) => {
+          ] as const).map((t) => {
             const active = tab === t.key;
             return (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key as 'targets' | 'trips')}
+                onClick={() => setTab(t.key)}
                 style={{
                   flex: 1,
                   border: 'none',
@@ -624,7 +967,6 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
                   fontWeight: active ? 600 : 500,
                   padding: '12px 10px',
                   borderRadius: 10,
-                  letterSpacing: '0.02em',
                 }}
               >
                 {t.label}
@@ -659,7 +1001,7 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
                     width: 36,
                     height: 36,
                     background: 'rgba(255,107,26,0.16)',
-                    border: `1px solid rgba(255,107,26,0.35)`,
+                    border: '1px solid rgba(255,107,26,0.35)',
                     borderRadius: 10,
                     display: 'flex',
                     alignItems: 'center',
@@ -684,7 +1026,6 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
                   <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 500 }}>{s.name}</div>
                   <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 2, letterSpacing: '0.04em' }}>
                     {s.lat.toFixed(3)}°N · {s.lng.toFixed(3)}°E
-                    {s.cachedTiles ? ` · ${((s.cachedTiles * 18) / 1024).toFixed(1)} MB` : ''}
                   </div>
                 </button>
                 <button
@@ -694,14 +1035,33 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
                     background: 'transparent',
                     border: 'none',
                     color: C.inkMute,
-                    fontSize: 18,
+                    fontSize: 16,
                     padding: '6px 8px',
                   }}
                 >
-                  →
+                  ✕
                 </button>
               </div>
             ))}
+            {onSaveCurrent && (
+              <button
+                onClick={onSaveCurrent}
+                style={{
+                  width: '100%',
+                  marginTop: 8,
+                  height: 44,
+                  background: 'transparent',
+                  border: `1px dashed ${C.target}`,
+                  borderRadius: 10,
+                  color: C.target,
+                  fontFamily: F_DISP,
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                + Сохранить текущую цель
+              </button>
+            )}
           </>
         )}
 
@@ -712,90 +1072,103 @@ function SavedSheet({ saved, trips, settings, onClose, onPickTarget, onResumeTri
                 Поездок ещё нет
               </div>
             )}
-            {trips.map((t) => (
-              <div
-                key={t.id}
-                style={{
-                  background: C.bg2,
-                  border: `1px solid ${C.line}`,
-                  borderRadius: 12,
-                  padding: 12,
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      background: 'rgba(255,107,26,0.12)',
-                      border: `1px solid ${C.line2}`,
-                      borderRadius: 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: C.target,
-                      fontSize: 14,
-                    }}
-                  >
-                    ‖
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 500 }}>{t.name}</div>
-                    <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 2, letterSpacing: '0.04em' }}>
-                      {fmtDist(t.distM, settings.units).v} {fmtDist(t.distM, settings.units).u} · {fmtMS(tripDurationSec(t))}
+            {trips.map((t) => {
+              const d = fmtDist(t.distM, settings.units);
+              return (
+                <div
+                  key={t.id}
+                  style={{
+                    background: C.bg2,
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        background: 'rgba(255,107,26,0.12)',
+                        border: `1px solid ${C.line2}`,
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: C.target,
+                        fontSize: 14,
+                      }}
+                    >
+                      ‖
                     </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontFamily: F_DISP,
+                          fontSize: 14,
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {t.name}
+                      </div>
+                      <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 2, letterSpacing: '0.04em' }}>
+                        {d.v} {d.u} · {fmtMS(tripDurationSec(t))}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onRemoveTrip(t.id)}
+                      aria-label="remove"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: C.inkMute,
+                        fontSize: 14,
+                        padding: '4px 8px',
+                      }}
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    onClick={() => onRemoveTrip(t.id)}
-                    aria-label="remove"
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: C.inkMute,
-                      fontSize: 14,
-                      padding: '4px 8px',
-                    }}
-                  >
-                    ✕
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => onResumeTrip(t)}
+                      style={{
+                        flex: 2,
+                        height: 44,
+                        background: C.target,
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 10,
+                        fontFamily: F_DISP,
+                        fontSize: 14,
+                        fontWeight: 700,
+                      }}
+                    >
+                      ▶ Продолжить
+                    </button>
+                    <button
+                      onClick={() => downloadGpx(t)}
+                      style={{
+                        flex: 1,
+                        height: 44,
+                        background: 'transparent',
+                        color: C.ink,
+                        border: `1px solid ${C.line2}`,
+                        borderRadius: 10,
+                        fontFamily: F_DISP,
+                        fontSize: 13,
+                      }}
+                    >
+                      ↑ GPX
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => onResumeTrip(t)}
-                    style={{
-                      flex: 2,
-                      height: 44,
-                      background: C.target,
-                      color: C.targetInk,
-                      border: 'none',
-                      borderRadius: 10,
-                      fontFamily: F_DISP,
-                      fontSize: 14,
-                      fontWeight: 700,
-                    }}
-                  >
-                    ▶ Продолжить
-                  </button>
-                  <button
-                    onClick={() => downloadGpx(t)}
-                    style={{
-                      flex: 1,
-                      height: 44,
-                      background: 'transparent',
-                      color: C.ink,
-                      border: `1px solid ${C.line2}`,
-                      borderRadius: 10,
-                      fontFamily: F_DISP,
-                      fontSize: 14,
-                      fontWeight: 500,
-                    }}
-                  >
-                    ↑ GPX
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
       </div>

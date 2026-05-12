@@ -1,19 +1,23 @@
-// 03 Ride — главный экран. По скриншоту: ←/LIVE-pill/⚙ топ-бар, layer SVG слева,
-// MiniDial справа, карта на весь экран с маркером цели и «вы»,
-// нижний HUD на 3 ячейки (TO TARGET / AT · O'CLOCK 0:30 h / ETA),
-// тулбар PAUSE / SPEED / RIDDEN / TIME / voice-mute стопка / STOP.
-// Курс — bearingFromTrail с компасом-fallback. Голос каждые intervalSec.
-// iOS heading permission — баннер «Разрешить компас».
-// Long-press мини-дила → fullscreen peek. Auto-recenter с FAB «К себе».
+// 03 Ride — главный экран. Дизайн (Screens Explainer):
+// • full-bleed карта, поверх всё с blur
+// • LIVE-бейдж сверху (зелёный) / «GPS LOST» (красный) при потере фикса
+// • Слой слева сверху, мини-циферблат справа сверху (стрелка на цель)
+// • Зелёный пунктирный трек (фактический путь) + оранжевый пунктир «вы → цель»
+// • Маркер «вы» — двухрежимная ромб-стрелка: в движении — по вектору двух
+//   последних точек, на стоянке — по магнитометру
+// • HUD: TO TARGET · AT O'CLOCK (часы:минуты) · ETA
+// • Тулбар 4 кнопки: Pause · Voice · Mute · Stop
+// • Back → модалка «Продолжить или Завершить?» через pushState + popstate
+// • Фоновый голос: тихий AudioContext + Media Session, чтоб экран мог быть погашен
+// • Pause останавливает запись трека (а не только голос)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
-import { styleFor, type Layer } from '../lib/mapStyles';
+import { styleFor } from '../lib/mapStyles';
 import {
   bearingTo,
   distanceM,
   fmtDist,
-  fmtETA,
   fmtSpeed,
   fmtTime,
   relativeToClock,
@@ -22,7 +26,8 @@ import {
 } from '../lib/geo';
 import { startHeading, bearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
 import { speak, buildPhrase } from '../lib/voice';
-import { saveTrip, type Trip, type TrailPoint } from '../lib/storage';
+import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
+import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
 import MiniDial from '../components/MiniDial';
@@ -31,25 +36,41 @@ import BigDial from '../components/BigDial';
 type Props = {
   settings: Settings;
   target: LatLng;
+  targetName: string | null;
   reverse: boolean;
   resumeTrail: TrailPoint[] | null;
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
   onExit: () => void;
+  onReverseRide: (target: LatLng, trail: TrailPoint[]) => void;
+  onJournal: () => void;
 };
 
-const NEAR_M = 500;
 const ARRIVED_M = 30;
+const NEAR_M = 500;
+const GPS_LOST_MS = 10_000;
 
-export default function RideScreen({ settings, target, reverse, resumeTrail, onSettings, onSettingsChange, onExit }: Props) {
+export default function RideScreen({
+  settings,
+  target,
+  targetName,
+  reverse,
+  resumeTrail,
+  onSettings,
+  onSettingsChange,
+  onExit,
+  onReverseRide,
+  onJournal,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
+  const meArrowRef = useRef<SVGElement | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [trail, setTrail] = useState<TrailPoint[]>(resumeTrail ? resumeTrail.slice() : []);
-  const [heading, setHeading] = useState<number>(0);
+  const [heading, setHeading] = useState(0);
   const [time, setTime] = useState(0);
   const [paused, setPaused] = useState(false);
   const [silenced, setSilenced] = useState(false);
@@ -59,38 +80,68 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
   const [peek, setPeek] = useState(false);
   const [needPerm, setNeedPerm] = useState(false);
   const [userPanned, setUserPanned] = useState(false);
+  const [gpsLost, setGpsLost] = useState(true);
+  const [showQuitModal, setShowQuitModal] = useState(false);
+  const [pendingWakeSpeak, setPendingWakeSpeak] = useState(false);
+  const [layerOpen, setLayerOpen] = useState(false);
 
-  const lastClockRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const speedMaxRef = useRef(0);
   const lastVoiceRef = useRef(0);
+  const lastGpsAtRef = useRef(0);
   const userPanTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
+  const lastClockRef = useRef<number | null>(null);
+  const savedTripIdRef = useRef<string | null>(null);
+  const frozenEtaRef = useRef<number | null>(null);
 
-  // GPS
+  const arrivedRef = useRef(false);
+  useEffect(() => {
+    arrivedRef.current = arrived;
+  }, [arrived]);
+
+  // ── Фоновый аудио + Media Session, чтобы голос не глох с погашенным экраном.
+  useEffect(() => {
+    startWakeAudio();
+    setupMediaSession('Vector · к цели');
+    return () => stopWakeAudio();
+  }, []);
+
+  // ── GPS: одиночная подписка. Pause останавливает ЗАПИСЬ трека (но не watch).
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
+        lastGpsAtRef.current = Date.now();
+        setGpsLost(false);
         const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: Date.now() };
         setMe({ lat: p.lat, lng: p.lng });
-        if (pos.coords.speed != null && pos.coords.speed > speedMaxRef.current) {
-          speedMaxRef.current = pos.coords.speed;
-        }
+        const s = pos.coords.speed ?? 0;
+        if (s > speedMaxRef.current) speedMaxRef.current = s;
+        if (paused) return;
         setTrail((tr) => {
           const last = tr[tr.length - 1];
           if (last && distanceM(last, p) < 2) return tr;
           const next = [...tr, p];
-          return next.length > 1200 ? next.slice(-1200) : next;
+          return next.length > 2000 ? next.slice(-2000) : next;
         });
       },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 30000 },
+      () => setGpsLost(true),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 30_000 },
     );
     return () => navigator.geolocation.clearWatch(id);
+  }, [paused]);
+
+  // ── GPS-lost watchdog: если давно не было фикса — поднять флаг.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (lastGpsAtRef.current === 0) return; // ещё не было ни одного фикса
+      if (Date.now() - lastGpsAtRef.current > GPS_LOST_MS) setGpsLost(true);
+    }, 1000);
+    return () => window.clearInterval(id);
   }, []);
 
-  // iOS heading permission
+  // ── iOS heading permission.
   useEffect(() => {
     if (needsIosPermission()) {
       setNeedPerm(true);
@@ -106,7 +157,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     if (ok) startHeading(setHeading);
   }
 
-  // Map
+  // ── Карта.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = new maplibregl.Map({
@@ -119,36 +170,57 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     mapRef.current = map;
 
     map.on('load', () => {
+      // Трек (зелёный пунктир)
       map.addSource('trail', {
         type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: [] },
-          properties: {},
-        },
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
       });
       map.addLayer({
         id: 'trail-line',
         type: 'line',
         source: 'trail',
-        paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.85 },
+        paint: {
+          'line-color': C.ok,
+          'line-width': 3,
+          'line-opacity': 0.85,
+          'line-dasharray': [2, 3],
+        },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       });
 
-      // Маркер цели
+      // Вектор «вы → цель» (оранжевый пунктир)
+      map.addSource('vector', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+      });
+      map.addLayer({
+        id: 'vector-line',
+        type: 'line',
+        source: 'vector',
+        paint: {
+          'line-color': C.target,
+          'line-width': 2.5,
+          'line-opacity': 0.7,
+          'line-dasharray': [3, 3],
+        },
+      });
+
+      // Маркер цели — оранжевый прицел с pulse.
       const tg = document.createElement('div');
-      tg.style.cssText = `position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;pointer-events:none`;
+      tg.style.cssText = 'position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;pointer-events:none';
       tg.innerHTML = `
-        <div style="position:absolute;width:34px;height:34px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-        <div style="position:relative;width:24px;height:24px;border-radius:50%;background:rgba(255,107,26,0.2);border:2px solid ${C.target};box-shadow:0 0 16px ${C.glow}"></div>`;
+        <div style="position:absolute;width:60px;height:60px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 10px ${C.glow})">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
+        </svg>`;
       targetMarkerRef.current = new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(map);
     });
 
-    // Detect user panning
     const onDragStart = () => {
       setUserPanned(true);
       if (userPanTimer.current) window.clearTimeout(userPanTimer.current);
-      userPanTimer.current = window.setTimeout(() => setUserPanned(false), 10000);
+      userPanTimer.current = window.setTimeout(() => setUserPanned(false), 10_000);
     };
     map.on('dragstart', onDragStart);
 
@@ -160,7 +232,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Layer switch
+  // Смена слоя.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -175,80 +247,134 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
           id: 'trail-line',
           type: 'line',
           source: 'trail',
-          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.85 },
+          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 3] },
+        });
+      }
+      if (!map.getSource('vector')) {
+        map.addSource('vector', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        });
+        map.addLayer({
+          id: 'vector-line',
+          type: 'line',
+          source: 'vector',
+          paint: { 'line-color': C.target, 'line-width': 2.5, 'line-opacity': 0.7, 'line-dasharray': [3, 3] },
         });
       }
     });
   }, [settings.layer]);
 
-  // Update «вы» marker
+  // ── Маркер «вы» — ромб-стрелка, поворот по dual-mode (движение/компас).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      el.style.cssText = `width:18px;height:18px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 0 4px rgba(72,222,148,0.18),0 0 14px rgba(72,222,148,0.55);position:relative`;
-      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([me.lng, me.lat])
-        .addTo(map);
+      el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.innerHTML = `
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.20);box-shadow:0 0 0 5px rgba(72,222,148,0.10),0 0 14px rgba(72,222,148,0.45)"></div>
+        <svg width="26" height="26" viewBox="0 0 24 24" style="transform: rotate(0deg);transition: transform 200ms ease-out">
+          <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>`;
+      meArrowRef.current = el.querySelector('svg');
+      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
       map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
   }, [me]);
 
-  // Trail draw
+  // ── Trail redraw + vector line redraw.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
-    if (!src) return;
-    src.setData({
-      type: 'Feature',
-      geometry: {
-        type: 'LineString',
-        coordinates: settings.showTrail ? trail.map((p) => [p.lng, p.lat]) : [],
-      },
-      properties: {},
-    });
+    if (src) {
+      src.setData({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: settings.showTrail ? trail.map((p) => [p.lng, p.lat]) : [],
+        },
+        properties: {},
+      });
+    }
   }, [trail, settings.showTrail]);
 
-  // Auto-recenter when no recent user pan
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me) return;
+    const src = map.getSource('vector') as maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [[me.lng, me.lat], [target.lng, target.lat]] },
+        properties: {},
+      });
+    }
+  }, [me, target]);
+
+  // ── Auto-recenter если пользователь не пэнил недавно.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me || userPanned) return;
     const id = window.setTimeout(() => {
       map.easeTo({ center: [me.lng, me.lat], duration: 700 });
-    }, 5000);
+    }, 5_000);
     return () => window.clearTimeout(id);
   }, [me, userPanned]);
 
-  // Sec timer
+  // ── Sec timer (стопается на pause).
   useEffect(() => {
     if (paused) return;
     const id = setInterval(() => setTime((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [paused]);
 
-  // Auto-hide chrome
+  // ── Auto-hide chrome через 5 сек.
   useEffect(() => {
     if (!chromeVisible) return;
-    const id = setTimeout(() => setChromeVisible(false), 5000);
+    const id = setTimeout(() => setChromeVisible(false), 5_000);
     return () => clearTimeout(id);
   }, [chromeVisible]);
 
-  // ── Расчёты
+  // ── Расчёты.
+  const liveSpeedMps = useMemo(() => {
+    if (trail.length < 2) return 0;
+    const a = trail[trail.length - 2];
+    const b = trail[trail.length - 1];
+    const dt = (b.t - a.t) / 1000;
+    if (dt < 0.5 || dt > 30) return 0;
+    return Math.min(40, distanceM(a, b) / dt);
+  }, [trail]);
+
+  useEffect(() => {
+    if (liveSpeedMps > speedMaxRef.current) speedMaxRef.current = liveSpeedMps;
+  }, [liveSpeedMps]);
+
+  // Dual-mode heading.
+  const courseHeading = useMemo(() => {
+    if (liveSpeedMps > 0.5 && trail.length >= 2) {
+      return bearingFromTrail(trail[trail.length - 2], trail[trail.length - 1]);
+    }
+    return heading;
+  }, [liveSpeedMps, trail, heading]);
+
   const bearing = me ? bearingTo(me, target) : 0;
-  const courseHeading =
-    trail.length >= 2
-      ? bearingFromTrail(trail[trail.length - 2], trail[trail.length - 1])
-      : heading;
   const rel = ((bearing - courseHeading) % 360 + 360) % 360;
   const clockNum = me ? relativeToClock(rel) : 12;
-  const clockHM = me ? relativeToClockHM(rel) : '0:00';
+  const clockHM = me ? relativeToClockHM(rel) : '12:00';
   const distM = me ? distanceM(me, target) : 0;
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
+
+  // Rotate «вы» arrow.
+  useEffect(() => {
+    const svg = meArrowRef.current;
+    if (!svg) return;
+    (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading}deg)`;
+  }, [courseHeading]);
 
   const ridden = useMemo(() => {
     let total = 0;
@@ -259,47 +385,102 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     return total;
   }, [trail]);
 
-  const liveSpeedMps = useMemo(() => {
-    if (trail.length < 2) return 0;
-    const a = trail[trail.length - 2];
-    const b = trail[trail.length - 1];
-    const dt = (b.t - a.t) / 1000;
-    if (dt < 0.5 || dt > 30) return 0;
-    return Math.min(40, distanceM(a, b) / dt);
-  }, [trail]);
+  const avgMps = time > 0 ? ridden / time : 0;
+
+  const etaMin = useMemo(() => {
+    if (time < 30) return null;
+    if (avgMps >= 0.3) {
+      const v = Math.max(1, Math.round(distM / avgMps / 60));
+      frozenEtaRef.current = v;
+      return v;
+    }
+    return frozenEtaRef.current;
+  }, [time, avgMps, distM]);
+
   const liveSpeed = fmtSpeed(liveSpeedMps, settings.units);
   const riddenFmt = fmtDist(ridden, settings.units);
-  const avgMps = time > 0 ? ridden / time : 0;
-  const eta = fmtETA(distM, avgMps || liveSpeedMps);
 
-  // Arrived
+  const triggerArrived = useCallback(() => {
+    setArrived(true);
+    if (settings.haptics && navigator.vibrate) navigator.vibrate([30, 60, 30, 60, 90]);
+    if (!silenced) {
+      // Голос «Вы у цели»
+      const phrase = settings.lang === 'ru' ? 'Вы у цели' : settings.lang === 'de' ? 'Sie sind am Ziel' : 'You have arrived';
+      speak(phrase, settings.lang, settings.voiceURI);
+    }
+  }, [silenced, settings.haptics, settings.lang, settings.voiceURI]);
+
+  // ── Поездка достигнута: <ARRIVED_M, либо вручную Stop.
   useEffect(() => {
     if (!me || arrived || paused) return;
-    if (distM < ARRIVED_M) {
-      setArrived(true);
-      if (settings.haptics && navigator.vibrate) navigator.vibrate([30, 60, 30, 60, 90]);
-      if (!silenced) speak(buildPhrase({ lang: settings.lang, clock: clockNum, distM, reverse }), settings.lang, settings.voiceURI);
-    }
-  }, [me, distM, arrived, paused, silenced, settings.haptics, settings.lang, settings.voiceURI, clockNum, reverse]);
+    if (distM < ARRIVED_M) triggerArrived();
+  }, [me, distM, arrived, paused, triggerArrived]);
 
-  // Voice loop
+  // ── Auto-save поездки при arrived (один раз).
+  useEffect(() => {
+    if (!arrived) return;
+    if (savedTripIdRef.current) return;
+    const id = String(Date.now());
+    savedTripIdRef.current = id;
+    const defaultName = `Поездка от ${new Date().toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    setTripName(defaultName);
+    const trip: Trip = {
+      id,
+      name: defaultName,
+      startedAt: startedAtRef.current,
+      finishedAt: Date.now(),
+      distM: Math.round(ridden),
+      speedAvgMps: avgMps,
+      speedMaxMps: speedMaxRef.current,
+      trail,
+      reverse,
+      finished: true,
+      target,
+    };
+    void saveTrip(trip);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrived]);
+
+  // ── Rename trip on tripName change (debounce 400).
+  useEffect(() => {
+    const id = savedTripIdRef.current;
+    if (!id || !tripName) return;
+    const t = window.setTimeout(() => void renameTrip(id, tripName), 400);
+    return () => window.clearTimeout(t);
+  }, [tripName]);
+
+  // ── Voice loop. Стабильный интервал, актуальные данные через ref.
+  const speakRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    speakRef.current = () => {
+      if (!me) return;
+      speak(
+        buildPhrase({ lang: settings.lang, clockHM, distM, etaMin, reverse }),
+        settings.lang,
+        settings.voiceURI,
+      );
+    };
+  }, [me, settings.lang, settings.voiceURI, clockHM, distM, etaMin, reverse]);
+
   useEffect(() => {
     if (silenced || paused || arrived || settings.intervalSec === 0 || !me) return;
-    const sayPhrase = () => {
-      speak(buildPhrase({ lang: settings.lang, clock: clockNum, distM, reverse }), settings.lang, settings.voiceURI);
-    };
-    if (lastVoiceRef.current === 0) {
+    if (lastVoiceRef.current === 0 && !pendingWakeSpeak) {
       lastVoiceRef.current = Date.now();
-      sayPhrase();
+      speakRef.current();
     }
     const id = window.setInterval(() => {
       lastVoiceRef.current = Date.now();
-      sayPhrase();
+      speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, settings.lang, settings.voiceURI, clockNum, distM, me, reverse]);
+  }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak]);
 
-  // Haptics on clock change
+  // ── Haptics на смену часа.
   useEffect(() => {
     if (!settings.haptics) return;
     if (lastClockRef.current !== null && lastClockRef.current !== clockNum) {
@@ -308,11 +489,65 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     lastClockRef.current = clockNum;
   }, [clockNum, settings.haptics]);
 
-  const sayNow = useCallback(() => {
-    speak(buildPhrase({ lang: settings.lang, clock: clockNum, distM, reverse }), settings.lang, settings.voiceURI);
-  }, [clockNum, distM, settings.lang, settings.voiceURI, reverse]);
+  // ── visibilitychange: при пробуждении — отменить накопившуюся речь и
+  // дождаться свежего GPS перед следующей фразой.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+      resumeWakeAudio();
+      setPendingWakeSpeak(true);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
-  // Long-press peek
+  // После пробуждения, как только GPS обновится — озвучить свежую фразу.
+  useEffect(() => {
+    if (!pendingWakeSpeak || !me) return;
+    setPendingWakeSpeak(false);
+    if (silenced || paused || arrived) return;
+    lastVoiceRef.current = Date.now();
+    speakRef.current();
+  }, [pendingWakeSpeak, me, silenced, paused, arrived]);
+
+  // ── Back-кнопка: pushState + popstate. На Arrived — выходим без вопроса.
+  useEffect(() => {
+    try {
+      history.pushState({ vector: 'ride' }, '');
+    } catch {
+      // ignore
+    }
+    const onPop = () => {
+      if (arrivedRef.current) {
+        onExit();
+        return;
+      }
+      setShowQuitModal(true);
+      try {
+        history.pushState({ vector: 'ride' }, '');
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [onExit]);
+
+  const sayNow = useCallback(() => {
+    resumeWakeAudio();
+    speakRef.current();
+  }, []);
+
+  function manualStop() {
+    triggerArrived();
+  }
+
+  // Long-press peek (full-screen BigDial).
   const onDialDown = () => {
     longPressTimer.current = window.setTimeout(() => setPeek(true), 380);
   };
@@ -328,24 +563,6 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     return () => window.clearTimeout(id);
   }, [peek]);
 
-  async function finish() {
-    const trip: Trip = {
-      id: String(Date.now()),
-      name: tripName.trim() || `Поездка · ${new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`,
-      startedAt: startedAtRef.current,
-      finishedAt: Date.now(),
-      distM: Math.round(ridden),
-      speedAvgMps: avgMps,
-      speedMaxMps: speedMaxRef.current,
-      trail,
-      reverse,
-      finished: true,
-      target,
-    };
-    await saveTrip(trip);
-    onExit();
-  }
-
   function recenter() {
     if (me && mapRef.current) {
       setUserPanned(false);
@@ -354,119 +571,110 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
     }
   }
 
-  const status: 'live' | 'paused' = paused ? 'paused' : 'live';
+  function handleQuitFinish() {
+    setShowQuitModal(false);
+    triggerArrived();
+  }
+
+  function handleQuitContinue() {
+    setShowQuitModal(false);
+  }
 
   return (
     <div
-      onClick={() => setChromeVisible(true)}
+      onClick={() => {
+        setChromeVisible(true);
+        // iOS: AudioContext.resume() требует user gesture — подтянем при первом тапе.
+        resumeWakeAudio();
+      }}
       style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}
     >
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Top bar */}
+      {/* LIVE / GPS LOST badge */}
       <div
         style={{
           position: 'absolute',
-          top: 'calc(10px + env(safe-area-inset-top))',
-          left: 12,
-          right: 12,
+          top: 'calc(14px + env(safe-area-inset-top))',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(17,20,19,0.92)',
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${gpsLost ? C.danger : C.line2}`,
+          borderRadius: 999,
+          padding: '5px 12px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          opacity: chromeVisible ? 1 : 0.18,
-          transition: 'opacity 400ms',
-          zIndex: 5,
+          gap: 6,
+          fontFamily: F_MONO,
+          fontSize: 10,
+          letterSpacing: '0.2em',
+          color: gpsLost ? C.danger : C.ink,
+          zIndex: 6,
+          opacity: chromeVisible ? 1 : 0.25,
+          transition: 'opacity 400ms, border-color 200ms, color 200ms',
         }}
       >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onExit();
-          }}
-          aria-label="back"
+        <span
           style={{
-            width: 42,
-            height: 38,
-            background: 'rgba(11,13,12,0.85)',
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 10,
-            backdropFilter: 'blur(8px)',
-            fontSize: 18,
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: paused ? C.target : gpsLost ? C.danger : C.ok,
+            boxShadow: `0 0 8px ${paused ? C.target : gpsLost ? C.danger : C.ok}`,
+            animation: gpsLost || paused ? 'none' : 'liveBlink 1.6s ease-in-out infinite',
           }}
-        >
-          ←
-        </button>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '6px 14px',
-            borderRadius: 999,
-            background: 'rgba(11,13,12,0.85)',
-            border: `1px solid ${C.line2}`,
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: status === 'paused' ? C.target : C.ok,
-              boxShadow: `0 0 8px ${status === 'paused' ? C.target : C.ok}`,
-            }}
-          />
-          <span
-            style={{
-              fontFamily: F_MONO,
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              color: C.ink,
-              textTransform: 'uppercase',
-            }}
-          >
-            {status === 'paused' ? 'PAUSED' : 'LIVE'}
-          </span>
-        </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSettings();
-          }}
-          aria-label="settings"
-          style={{
-            width: 42,
-            height: 38,
-            background: 'rgba(11,13,12,0.85)',
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 10,
-            backdropFilter: 'blur(8px)',
-            fontSize: 18,
-          }}
-        >
-          ⚙
-        </button>
+        />
+        {paused ? 'PAUSED' : gpsLost ? 'GPS LOST' : 'LIVE'}
       </div>
 
-      {/* Layer button (left under top bar) */}
+      {/* Layer button (top-left) */}
       <div
         style={{
           position: 'absolute',
-          top: 'calc(56px + env(safe-area-inset-top))',
+          top: 'calc(14px + env(safe-area-inset-top))',
           left: 12,
-          opacity: chromeVisible ? 1 : 0.18,
+          zIndex: 6,
+          opacity: chromeVisible ? 1 : 0.25,
           transition: 'opacity 400ms',
-          zIndex: 5,
         }}
       >
-        <LayerButton layer={settings.layer} onLayer={(l) => onSettingsChange({ layer: l })} />
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setLayerOpen((v) => !v);
+          }}
+          aria-label="layer"
+          style={{
+            width: 38,
+            height: 38,
+            background: 'rgba(17,20,19,0.92)',
+            backdropFilter: 'blur(8px)',
+            border: `1px solid ${layerOpen ? C.target : C.line2}`,
+            borderRadius: 10,
+            color: layerOpen ? C.target : C.ink,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="2,8 12,3 22,8 12,13" />
+            <polyline points="2,16 12,21 22,16" />
+          </svg>
+        </button>
+        {layerOpen && (
+          <LayerPopover
+            layer={settings.layer}
+            onPick={(l) => {
+              onSettingsChange({ layer: l });
+              setLayerOpen(false);
+            }}
+          />
+        )}
       </div>
 
-      {/* Mini dial (right under top bar) */}
+      {/* Mini-dial (top-right) */}
       <div
         onMouseDown={onDialDown}
         onMouseUp={onDialUp}
@@ -475,11 +683,11 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
         onTouchEnd={onDialUp}
         style={{
           position: 'absolute',
-          top: 'calc(56px + env(safe-area-inset-top))',
+          top: 'calc(14px + env(safe-area-inset-top))',
           right: 12,
-          opacity: chromeVisible ? 1 : 0.18,
+          opacity: chromeVisible ? 1 : 0.25,
           transition: 'opacity 400ms',
-          zIndex: 5,
+          zIndex: 6,
         }}
       >
         <MiniDial bearingRel={rel} near={near} />
@@ -491,7 +699,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'absolute',
-            top: 'calc(120px + env(safe-area-inset-top))',
+            top: 'calc(70px + env(safe-area-inset-top))',
             left: 12,
             right: 12,
             background: 'rgba(11,13,12,0.96)',
@@ -500,7 +708,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
             padding: 14,
             borderRadius: 12,
             backdropFilter: 'blur(10px)',
-            zIndex: 6,
+            zIndex: 7,
           }}
         >
           <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Разрешить компас</div>
@@ -513,7 +721,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
               width: '100%',
               height: 44,
               background: C.target,
-              color: C.targetInk,
+              color: '#fff',
               border: 'none',
               borderRadius: 10,
               fontFamily: F_DISP,
@@ -537,7 +745,7 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
           style={{
             position: 'absolute',
             right: 14,
-            bottom: 200,
+            bottom: 'calc(180px + env(safe-area-inset-bottom))',
             width: 48,
             height: 48,
             background: 'rgba(11,13,12,0.9)',
@@ -554,43 +762,67 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
         </button>
       )}
 
-      {/* Bottom HUD */}
+      {/* Settings (нет в спеке топ-бара — оставлю слева внизу) */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onSettings();
+        }}
+        aria-label="settings"
+        style={{
+          position: 'absolute',
+          left: 12,
+          bottom: 'calc(180px + env(safe-area-inset-bottom))',
+          width: 40,
+          height: 40,
+          background: 'rgba(17,20,19,0.85)',
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 10,
+          color: C.ink,
+          fontSize: 16,
+          zIndex: 5,
+          opacity: chromeVisible ? 1 : 0.25,
+          transition: 'opacity 400ms',
+        }}
+      >
+        ⚙
+      </button>
+
+      {/* HUD bar (above toolbar) */}
       <div
         style={{
           position: 'absolute',
-          left: 14,
-          right: 14,
-          bottom: 'calc(80px + env(safe-area-inset-bottom))',
-          padding: '10px 4px',
-          borderRadius: 14,
-          background: near ? 'rgba(15,32,24,0.85)' : 'rgba(11,13,12,0.78)',
-          backdropFilter: 'blur(12px)',
-          border: `1px solid ${near ? 'rgba(72,222,148,0.4)' : C.line2}`,
-          boxShadow: near ? `0 0 32px ${C.okGlow}` : 'none',
-          transition: 'background 400ms, box-shadow 400ms, border-color 400ms',
+          left: 0,
+          right: 0,
+          bottom: `calc(76px + env(safe-area-inset-bottom))`,
+          background: 'rgba(11,13,12,0.92)',
+          backdropFilter: 'blur(10px)',
+          borderTop: `1px solid ${C.line}`,
           display: 'flex',
-          alignItems: 'stretch',
-          zIndex: 4,
+          zIndex: 6,
+          transition: 'background 300ms',
         }}
       >
-        <Cell label="TO TARGET" value={dist.v} unit={dist.u} accent={near ? C.ok : C.ink} />
-        <Divider color={near ? C.ok : C.target} />
-        <Cell label="AT · O'CLOCK" value={clockHM} unit="h" accent={near ? C.ok : C.target} highlight />
-        <Divider color={near ? C.ok : C.target} />
-        <Cell label="ETA" value={eta} unit="min" accent={near ? C.ok : C.ink} />
+        <HudCell label="TO TARGET" value={dist.v} unit={dist.u} />
+        <HudCell label="AT O'CLOCK" value={clockHM} accent />
+        <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar 4 buttons */}
       <Toolbar
         paused={paused}
         silenced={silenced}
-        liveSpeed={liveSpeed}
-        ridden={riddenFmt}
-        time={time}
-        onPause={() => setPaused((p) => !p)}
+        onPause={() => {
+          setPaused((p) => !p);
+          resumeWakeAudio();
+        }}
         onSay={sayNow}
-        onMute={() => setSilenced((v) => !v)}
-        onStop={() => setArrived(true)}
+        onMute={() => {
+          setSilenced((v) => !v);
+          if (!silenced) speechSynthesis.cancel();
+        }}
+        onStop={manualStop}
       />
 
       {/* Long-press peek */}
@@ -613,43 +845,74 @@ export default function RideScreen({ settings, target, reverse, resumeTrail, onS
         </div>
       )}
 
+      {/* Quit modal */}
+      {showQuitModal && (
+        <QuitModal onContinue={handleQuitContinue} onFinish={handleQuitFinish} />
+      )}
+
       {/* Arrived overlay */}
       {arrived && (
         <ArrivedOverlay
           ridden={ridden}
           time={time}
           avgMps={avgMps}
+          maxMps={speedMaxRef.current}
           name={tripName}
           onName={setTripName}
           units={settings.units}
-          onSave={finish}
+          targetName={targetName}
+          onJournal={onJournal}
           onNew={onExit}
+          onReverse={
+            trail.length > 0
+              ? () => onReverseRide({ lat: trail[0].lat, lng: trail[0].lng }, trail)
+              : null
+          }
         />
+      )}
+
+      {/* Diag panel (hidden in production-ish): live speed for debug-feel.
+          Keeping minimal info in chrome — visible only when chromeVisible. */}
+      {chromeVisible && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(60px + env(safe-area-inset-top))',
+            right: 12,
+            display: 'flex',
+            gap: 8,
+            fontFamily: F_MONO,
+            fontSize: 10,
+            color: C.inkDim,
+            letterSpacing: '0.08em',
+            pointerEvents: 'none',
+            zIndex: 6,
+          }}
+        >
+          <span>
+            {liveSpeed.v} {liveSpeed.u}
+          </span>
+          <span>·</span>
+          <span>{riddenFmt.v} {riddenFmt.u}</span>
+          <span>·</span>
+          <span>{fmtTime(time)}</span>
+        </div>
       )}
     </div>
   );
 }
 
-function Cell({ label, value, unit, accent, highlight }: { label: string; value: string; unit: string; accent: string; highlight?: boolean }) {
+// ───────────────────────────────────────────────────────────────────────────
+
+function HudCell({ label, value, unit, accent }: { label: string; value: string; unit?: string; accent?: boolean }) {
   return (
-    <div
-      style={{
-        flex: '1 1 0',
-        minWidth: 0,
-        padding: '6px 4px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-      }}
-    >
+    <div style={{ flex: 1, padding: '10px 4px', textAlign: 'center', borderLeft: `1px solid ${C.line}` }}>
       <div
         style={{
           fontFamily: F_MONO,
           fontSize: 9,
           letterSpacing: '0.2em',
-          color: highlight ? accent : C.inkDim,
+          color: C.inkDim,
           textTransform: 'uppercase',
         }}
       >
@@ -657,122 +920,18 @@ function Cell({ label, value, unit, accent, highlight }: { label: string; value:
       </div>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 4,
-          fontFamily: F_DISP,
+          fontFamily: F_MONO,
+          fontSize: 22,
           fontWeight: 700,
-          lineHeight: 0.95,
-          letterSpacing: '-0.04em',
+          color: accent ? C.target : C.ink,
+          letterSpacing: '-0.02em',
+          marginTop: 3,
           fontVariantNumeric: 'tabular-nums',
-          color: accent,
-          textShadow: highlight ? `0 0 16px ${C.glow}` : 'none',
         }}
       >
-        <span style={{ fontSize: 28 }}>{value}</span>
-        <span style={{ fontSize: 11, color: C.inkDim, fontWeight: 500 }}>{unit}</span>
+        {value}
+        {unit && <span style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim, fontWeight: 500, marginLeft: 2 }}>{unit}</span>}
       </div>
-    </div>
-  );
-}
-
-function Divider({ color }: { color: string }) {
-  return (
-    <div
-      style={{
-        width: 1,
-        alignSelf: 'stretch',
-        margin: '6px 0',
-        background: `linear-gradient(180deg, transparent, ${C.line2} 20%, ${color} 50%, ${C.line2} 80%, transparent)`,
-        opacity: 0.55,
-      }}
-    />
-  );
-}
-
-function LayerButton({ layer, onLayer }: { layer: Layer; onLayer: (l: Layer) => void }) {
-  const [open, setOpen] = useState(false);
-  const items: Array<{ v: Layer; l: string }> = [
-    { v: 'std', l: 'Карта' },
-    { v: 'sat', l: 'Спутник' },
-    { v: 'topo', l: 'Топо' },
-    { v: 'tour', l: 'Турист' },
-  ];
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        aria-label="layer"
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 12,
-          border: `1px solid ${open ? C.target : C.line2}`,
-          background: 'rgba(11,13,12,0.85)',
-          backdropFilter: 'blur(8px)',
-          color: open ? C.target : C.ink,
-        }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M3 7.5L9 5L15 7.5L21 5V16.5L15 19L9 16.5L3 19V7.5Z"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinejoin="round"
-          />
-          <path d="M9 5V16.5M15 7.5V19" stroke="currentColor" strokeWidth="1.6" />
-        </svg>
-      </button>
-      {open && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 50,
-            width: 140,
-            background: 'rgba(11,13,12,0.96)',
-            border: `1px solid ${C.line2}`,
-            borderRadius: 12,
-            padding: 4,
-            backdropFilter: 'blur(10px)',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
-          }}
-        >
-          {items.map((it) => {
-            const active = layer === it.v;
-            return (
-              <button
-                key={it.v}
-                onClick={() => {
-                  onLayer(it.v);
-                  setOpen(false);
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: active ? C.target : 'transparent',
-                  color: active ? C.targetInk : C.ink,
-                  fontFamily: F_MONO,
-                  fontSize: 11,
-                  fontWeight: active ? 700 : 500,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {it.l}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -780,9 +939,6 @@ function LayerButton({ layer, onLayer }: { layer: Layer; onLayer: (l: Layer) => 
 function Toolbar({
   paused,
   silenced,
-  liveSpeed,
-  ridden,
-  time,
   onPause,
   onSay,
   onMute,
@@ -790,9 +946,6 @@ function Toolbar({
 }: {
   paused: boolean;
   silenced: boolean;
-  liveSpeed: { v: string; u: string };
-  ridden: { v: string; u: string };
-  time: number;
   onPause: () => void;
   onSay: () => void;
   onMute: () => void;
@@ -806,144 +959,228 @@ function Toolbar({
         left: 0,
         right: 0,
         bottom: 0,
-        height: `calc(74px + env(safe-area-inset-bottom))`,
-        background: 'rgba(17,20,19,0.96)',
+        height: `calc(76px + env(safe-area-inset-bottom))`,
+        background: 'rgba(11,13,12,0.96)',
         borderTop: `1px solid ${C.line}`,
         display: 'flex',
-        alignItems: 'stretch',
-        zIndex: 6,
+        zIndex: 7,
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
-      <ToolBtn onClick={onPause} icon={paused ? '▶' : '‖'} label={paused ? 'PLAY' : 'PAUSE'} accent />
-      <Stat label="SPEED" value={liveSpeed.v} unit={liveSpeed.u} />
-      <Stat label="RIDDEN" value={ridden.v} unit={ridden.u} accent />
-      <Stat label="TIME" value={fmtTime(time)} />
-      <div style={{ display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${C.line}`, borderRight: `1px solid ${C.line}` }}>
-        <button
-          onClick={onSay}
-          aria-label="voice"
-          style={{
-            flex: 1,
-            width: 44,
-            background: 'transparent',
-            border: 'none',
-            color: C.ink,
-            fontSize: 16,
-          }}
-        >
-          🔊
-        </button>
-        <button
-          onClick={onMute}
-          aria-label="mute"
-          style={{
-            flex: 1,
-            width: 44,
-            background: 'transparent',
-            border: 'none',
-            color: silenced ? C.target : C.inkDim,
-            fontSize: 16,
-            borderTop: `1px solid ${C.line}`,
-          }}
-        >
-          {silenced ? '🔕' : '🔇'}
-        </button>
-      </div>
+      <ToolButton onClick={onPause} active={paused} label={paused ? 'PLAY' : 'PAUSE'}>
+        {paused ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="6,4 20,12 6,20" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" />
+            <rect x="14" y="4" width="4" height="16" />
+          </svg>
+        )}
+      </ToolButton>
+      <ToolButton onClick={onSay} label="VOICE">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 10v4h4l5 5V5l-5 5H3z" />
+          <path d="M16 8a5 5 0 010 8" />
+        </svg>
+      </ToolButton>
+      <ToolButton onClick={onMute} active={silenced} label="MUTE">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 10v4h4l5 5V5l-5 5H3z" />
+          <line x1="22" y1="9" x2="16" y2="15" />
+          <line x1="16" y1="9" x2="22" y2="15" />
+        </svg>
+      </ToolButton>
       <button
         onClick={onStop}
         style={{
-          width: 80,
+          flex: 1,
           background: 'rgba(201,58,26,0.14)',
-          color: C.danger,
           border: 'none',
-          fontFamily: F_MONO,
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
+          borderLeft: `1px solid ${C.line}`,
+          color: C.danger,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 2,
+          gap: 3,
+          fontFamily: F_MONO,
+          fontSize: 9,
+          letterSpacing: '0.2em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
         }}
       >
-        <span style={{ fontSize: 14 }}>◼</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" />
+        </svg>
         STOP
       </button>
     </div>
   );
 }
 
-function ToolBtn({ onClick, icon, label, accent }: { onClick: () => void; icon: string; label: string; accent?: boolean }) {
+function ToolButton({
+  onClick,
+  active,
+  label,
+  children,
+}: {
+  onClick: () => void;
+  active?: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
       style={{
-        width: 64,
+        flex: 1,
         background: 'transparent',
         border: 'none',
-        borderRight: `1px solid ${C.line}`,
-        color: accent ? C.target : C.ink,
+        color: active ? C.target : C.ink,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 2,
+        gap: 3,
         fontFamily: F_MONO,
         fontSize: 9,
-        letterSpacing: '0.16em',
+        letterSpacing: '0.2em',
+        textTransform: 'uppercase',
       }}
     >
-      <span style={{ fontSize: 18, fontFamily: F_DISP }}>{icon}</span>
+      {children}
       {label}
     </button>
   );
 }
 
-function Stat({ label, value, unit, accent }: { label: string; value: string; unit?: string; accent?: boolean }) {
+function QuitModal({ onContinue, onFinish }: { onContinue: () => void; onFinish: () => void }) {
   return (
     <div
+      onClick={(e) => e.stopPropagation()}
       style={{
-        flex: 1,
-        borderRight: `1px solid ${C.line}`,
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.65)',
+        zIndex: 300,
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '0 4px',
-        minWidth: 0,
+        padding: 24,
+        animation: 'fadeIn 200ms ease',
       }}
     >
       <div
         style={{
-          fontFamily: F_MONO,
-          fontSize: 9,
-          letterSpacing: '0.16em',
-          color: C.inkDim,
-          textTransform: 'uppercase',
+          width: '100%',
+          maxWidth: 360,
+          background: C.bg,
+          border: `1px solid ${C.line2}`,
+          borderRadius: 16,
+          padding: 22,
         }}
       >
-        {label}
+        <div style={{ fontFamily: F_DISP, fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Завершить поездку?</div>
+        <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.08em', marginBottom: 18 }}>
+          Прогресс сохранится автоматически.
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onContinue}
+            style={{
+              flex: 1,
+              height: 48,
+              background: 'transparent',
+              border: `1px solid ${C.line2}`,
+              color: C.ink,
+              borderRadius: 10,
+              fontFamily: F_DISP,
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            Продолжить
+          </button>
+          <button
+            onClick={onFinish}
+            style={{
+              flex: 1,
+              height: 48,
+              background: C.danger,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              fontFamily: F_DISP,
+              fontSize: 14,
+              fontWeight: 700,
+            }}
+          >
+            Завершить
+          </button>
+        </div>
       </div>
-      <div
-        style={{
-          fontFamily: F_DISP,
-          fontSize: 18,
-          fontWeight: 700,
-          letterSpacing: '-0.02em',
-          color: accent ? C.target : C.ink,
-          fontVariantNumeric: 'tabular-nums',
-          marginTop: 2,
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 3,
-        }}
-      >
-        {value}
-        {unit && <span style={{ fontFamily: F_MONO, fontSize: 9, color: C.inkDim, fontWeight: 500 }}>{unit}</span>}
-      </div>
+    </div>
+  );
+}
+
+function LayerPopover({
+  layer,
+  onPick,
+}: {
+  layer: Parameters<typeof styleFor>[0];
+  onPick: (l: Parameters<typeof styleFor>[0]) => void;
+}) {
+  const items: Array<{ v: Parameters<typeof styleFor>[0]; l: string }> = [
+    { v: 'std', l: 'Карта' },
+    { v: 'sat', l: 'Спутник' },
+    { v: 'topo', l: 'Топо' },
+    { v: 'tour', l: 'Турист' },
+  ];
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 46,
+        width: 140,
+        background: 'rgba(11,13,12,0.96)',
+        backdropFilter: 'blur(10px)',
+        border: `1px solid ${C.line2}`,
+        borderRadius: 12,
+        padding: 4,
+        boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+      }}
+    >
+      {items.map((it) => {
+        const active = layer === it.v;
+        return (
+          <button
+            key={it.v}
+            onClick={() => onPick(it.v)}
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: 'none',
+              background: active ? C.target : 'transparent',
+              color: active ? '#fff' : C.ink,
+              fontFamily: F_MONO,
+              fontSize: 11,
+              fontWeight: active ? 700 : 500,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {it.l}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -952,25 +1189,30 @@ function ArrivedOverlay({
   ridden,
   time,
   avgMps,
+  maxMps,
   name,
   onName,
   units,
-  onSave,
+  targetName,
+  onJournal,
   onNew,
+  onReverse,
 }: {
   ridden: number;
   time: number;
   avgMps: number;
+  maxMps: number;
   name: string;
   onName: (s: string) => void;
   units: 'metric' | 'imperial';
-  onSave: () => void;
+  targetName: string | null;
+  onJournal: () => void;
   onNew: () => void;
+  onReverse: (() => void) | null;
 }) {
   const dist = fmtDist(ridden, units);
-  const speed = fmtSpeed(avgMps, units);
-  const speedLabel = units === 'imperial' ? 'MPH' : 'KM/H';
-  const placeholder = `Поездка · ${new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`;
+  const avg = fmtSpeed(avgMps, units);
+  const max = fmtSpeed(maxMps, units);
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -982,94 +1224,162 @@ function ArrivedOverlay({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: '32px 24px calc(32px + env(safe-area-inset-bottom))',
+        padding: '32px 24px calc(24px + env(safe-area-inset-bottom))',
         animation: 'fadeIn 280ms ease',
       }}
     >
       <div style={{ flex: 1 }} />
       <div
         style={{
-          width: 120,
-          height: 120,
+          width: 110,
+          height: 110,
           borderRadius: '50%',
           border: `2px solid ${C.target}`,
           boxShadow: `0 0 40px ${C.glow}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: 18,
+          marginBottom: 16,
         }}
       >
-        <span style={{ fontSize: 56, color: C.target }}>✓</span>
+        <span style={{ fontSize: 50, color: C.target }}>✓</span>
       </div>
-      <div style={{ fontFamily: F_DISP, fontSize: 32, fontWeight: 600, marginBottom: 10 }}>Arrived!</div>
+      <div style={{ fontFamily: F_DISP, fontSize: 30, fontWeight: 600, marginBottom: 6 }}>Прибыли!</div>
+      {targetName && (
+        <div
+          style={{
+            fontFamily: F_MONO,
+            fontSize: 11,
+            letterSpacing: '0.1em',
+            color: C.inkDim,
+            marginBottom: 16,
+          }}
+        >
+          {targetName}
+        </div>
+      )}
+
+      {/* Summary grid */}
       <div
         style={{
-          fontFamily: F_MONO,
-          fontSize: 12,
-          letterSpacing: '0.16em',
-          color: C.inkDim,
-          marginBottom: 22,
-          textTransform: 'uppercase',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 10,
+          width: '100%',
+          maxWidth: 360,
+          marginBottom: 14,
         }}
       >
-        {fmtTime(time)} · {speed.v} {speedLabel} · {dist.v} {dist.u}
+        <Stat label="Время" value={fmtTime(time)} />
+        <Stat label="Дистанция" value={`${dist.v} ${dist.u}`} />
+        <Stat label="Средняя" value={`${avg.v} ${avg.u}`} />
+        <Stat label="Макс." value={`${max.v} ${max.u}`} />
       </div>
+
       <input
         value={name}
-        placeholder={placeholder}
+        placeholder="Имя поездки"
         onChange={(e) => onName(e.target.value)}
         style={{
           width: '100%',
           maxWidth: 360,
-          height: 48,
+          height: 44,
           background: C.bg2,
           color: C.ink,
           border: `1px solid ${C.line2}`,
-          borderRadius: 12,
-          padding: '0 14px',
+          borderRadius: 10,
+          padding: '0 12px',
           fontFamily: F_DISP,
-          fontSize: 14,
-          marginBottom: 12,
+          fontSize: 13,
+          marginBottom: 14,
         }}
       />
-      <button
-        onClick={onSave}
-        style={{
-          width: '100%',
-          maxWidth: 360,
-          height: 56,
-          background: C.target,
-          color: C.targetInk,
-          border: 'none',
-          borderRadius: 12,
-          fontFamily: F_DISP,
-          fontWeight: 700,
-          fontSize: 16,
-          boxShadow: `0 0 24px ${C.glow}`,
-          marginBottom: 10,
-        }}
-      >
-        ↓ Save ride
-      </button>
-      <button
-        onClick={onNew}
-        style={{
-          width: '100%',
-          maxWidth: 360,
-          height: 48,
-          background: 'transparent',
-          color: C.ink,
-          border: `1px solid ${C.line2}`,
-          borderRadius: 12,
-          fontFamily: F_DISP,
-          fontSize: 14,
-          fontWeight: 500,
-        }}
-      >
-        New target
-      </button>
+
+      <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 360, marginBottom: 8 }}>
+        <button
+          onClick={onJournal}
+          style={{
+            flex: 1,
+            height: 48,
+            background: C.bg2,
+            color: C.ink,
+            border: `1px solid ${C.line2}`,
+            borderRadius: 10,
+            fontFamily: F_DISP,
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          Журнал
+        </button>
+        <button
+          onClick={onNew}
+          style={{
+            flex: 1,
+            height: 48,
+            background: C.target,
+            color: '#fff',
+            border: 'none',
+            borderRadius: 10,
+            fontFamily: F_DISP,
+            fontSize: 14,
+            fontWeight: 700,
+            boxShadow: `0 0 24px ${C.glow}`,
+          }}
+        >
+          Новая цель
+        </button>
+      </div>
+
+      {onReverse && (
+        <button
+          onClick={onReverse}
+          style={{
+            width: '100%',
+            maxWidth: 360,
+            height: 44,
+            background: 'transparent',
+            color: C.ok,
+            border: `1px dashed ${C.ok}`,
+            borderRadius: 10,
+            fontFamily: F_DISP,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          ↩ Вернуться к старту
+        </button>
+      )}
       <div style={{ flex: 1 }} />
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        background: C.bg2,
+        border: `1px solid ${C.line}`,
+        borderRadius: 10,
+      }}
+    >
+      <div style={{ fontFamily: F_MONO, fontSize: 9, letterSpacing: '0.16em', color: C.inkDim, textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: F_MONO,
+          fontSize: 18,
+          fontWeight: 700,
+          color: C.ink,
+          marginTop: 2,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }

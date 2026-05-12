@@ -17,3 +17,5 @@ dist-ssr/
 dev-dist/
 
 *.tsbuildinfo
+
+.claude/

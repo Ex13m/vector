@@ -31,14 +31,15 @@ export function relativeToClock(rel: number): number {
   return hr === 0 ? 12 : hr;
 }
 
-// Формат «H:MM h» — half-hour гранулярность по 15° сектору.
-// 0:00 = 12 на верху, 0:30, 1:00, 1:30, ..., 11:30
+// Формат «H:MM» — шаг 5 минут циферблата (2.5° на шаг, 144 сектора).
+// 12:00 = прямо по курсу. Дальше 12:05, 12:10, … 11:55.
 export function relativeToClockHM(rel: number): string {
   const norm = ((rel % 360) + 360) % 360;
-  const half = Math.round(norm / 15) % 24; // 0..23
-  const h = Math.floor(half / 2) % 12;
-  const m = (half % 2) * 30;
-  return `${h}:${String(m).padStart(2, '0')}`;
+  // bearing × 2 = clock-minutes, округляем к ближайшим 5
+  const totalMin = (Math.round(norm / 2.5) * 5) % 720;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h === 0 ? 12 : h}:${String(m).padStart(2, '0')}`;
 }
 
 export function fmtDist(m: number, units: 'metric' | 'imperial' = 'metric') {

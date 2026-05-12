@@ -1,91 +1,205 @@
-// 02 Cache — реальный кэш видимой области.
-// Workbox CacheFirst (vite.config.ts) подхватит каждый fetch — карта будет работать оффлайн.
+// 02 Cache — скачивание тайлов видимой области для оффлайн.
+// Дизайн: full-bleed карта, те же маркеры/вектор что на 01, auto-fit на оба,
+// pinch меняет область кэширования, top-card с live-счётчиком,
+// «Сохранить область» внизу, лимит 2000 тайлов, auto-skip если всё уже в кэше.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
 import { styleFor } from '../lib/mapStyles';
-import { tilesForBox, downloadTiles, fmtBytes, bytesEstimate, MAX_TILES, type LngLatBox } from '../lib/tiles';
-import type { LatLng } from '../lib/geo';
+import {
+  tilesForBox,
+  downloadTiles,
+  fmtBytes,
+  bytesEstimate,
+  MAX_TILES,
+  type LngLatBox,
+  type TilePoint,
+} from '../lib/tiles';
+import { tileUrl } from '../lib/mapStyles';
+import { distanceM, fmtDist, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
 
 type Props = {
   settings: Settings;
   target: LatLng;
+  targetName: string | null; // принимаем для единообразия с App.tsx; на этом экране не показываем
   box: LngLatBox;
   onSkip: () => void;
   onDone: () => void;
   onBack: () => void;
 };
 
-export default function CacheScreen({ settings, target, box, onDone, onSkip, onBack }: Props) {
+const TILE_ZOOMS = [12, 13, 14, 15, 16];
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export default function CacheScreen({ settings, target, targetName: _targetName, box, onSkip, onDone, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
-  const [zoomDelta, setZoomDelta] = useState(0);
+  const targetMarkerRef = useRef<Marker | null>(null);
+  const meMarkerRef = useRef<Marker | null>(null);
+  const vectorLineRef = useRef<HTMLDivElement | null>(null);
+
+  const [me, setMe] = useState<LatLng | null>(null);
+  const [currentBox, setCurrentBox] = useState<LngLatBox>(box);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [hintHidden, setHintHidden] = useState(false);
+  const [checkedAutoSkip, setCheckedAutoSkip] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  // GPS — для маркера «вы».
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
+  // Map mount + initial fitBounds (вы + цель в кадре, padding 60).
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: styleFor(settings.layer),
-      center: [(box.west + box.east) / 2, (box.south + box.north) / 2],
+      center: [target.lng, target.lat],
       zoom: 12,
-      attributionControl: false,
-      interactive: false,
+      attributionControl: { compact: true },
     });
     mapRef.current = map;
-    map.fitBounds(
-      [
-        [box.west, box.south],
-        [box.east, box.north],
-      ],
-      { padding: 16, animate: false },
-    );
+
     map.on('load', () => {
-      // Маркер цели
+      // Маркер цели.
       const tg = document.createElement('div');
-      tg.style.cssText = `width:24px;height:24px;border-radius:50%;border:2px solid ${C.target};background:rgba(255,107,26,0.2);box-shadow:0 0 16px ${C.glow};animation:pulse 2s infinite ease-out`;
-      new (maplibregl as { Marker: typeof Marker }).Marker({ element: tg })
-        .setLngLat([target.lng, target.lat])
-        .addTo(map);
+      tg.style.cssText = 'position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.innerHTML = `
+        <div style="position:absolute;width:44px;height:44px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 8px ${C.glow})">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
+        </svg>`;
+      targetMarkerRef.current = new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(map);
     });
+
     return () => {
       map.remove();
       mapRef.current = null;
     };
-  }, [box, settings.layer, target]);
-
-  const zooms = useMemo(() => {
-    const map = mapRef.current;
-    const center = Math.round(map?.getZoom() ?? 12);
-    const arr: number[] = [];
-    for (let dz = -1 + zoomDelta; dz <= 1 + zoomDelta; dz++) {
-      const z = center + dz;
-      if (z >= 8 && z <= 17) arr.push(z);
-    }
-    return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomDelta, mapRef.current]);
+  }, []);
 
-  const tilesPlanned = useMemo(() => tilesForBox(box, zooms), [box, zooms]);
-  const totalCount = tilesPlanned.length;
-  const sizeBytes = bytesEstimate(totalCount);
-  const tooBig = totalCount > MAX_TILES;
+  // Слушатели карты — пересоздаются когда меняется redrawVectorOverlay / setCurrentBox.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onMove = () => {
+      const b = map.getBounds();
+      setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+      setHintHidden(true);
+      redrawVectorOverlay();
+    };
+    map.on('move', onMove);
+    return () => {
+      map.off('move', onMove);
+    };
+  }, [redrawVectorOverlay]);
 
-  const ready = progress && progress.done >= progress.total && progress.total > 0;
+  // FitBounds на вы + цель когда узнали GPS.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me) return;
+    const sw: [number, number] = [Math.min(me.lng, target.lng), Math.min(me.lat, target.lat)];
+    const ne: [number, number] = [Math.max(me.lng, target.lng), Math.max(me.lat, target.lat)];
+    map.fitBounds([sw, ne], { padding: 60, animate: false, maxZoom: 16 });
+    // Сразу обновим box.
+    const b = map.getBounds();
+    setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+  }, [me, target]);
+
+  // Маркер «вы» — ромб-стрелка на цель.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me) return;
+    if (!meMarkerRef.current) {
+      const el = document.createElement('div');
+      const deg = bearingPx(me, target);
+      el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.innerHTML = `
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
+        <svg width="26" height="26" viewBox="0 0 24 24" style="transform: rotate(${deg}deg)">
+          <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>`;
+      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
+    } else {
+      meMarkerRef.current.setLngLat([me.lng, me.lat]);
+      const svg = meMarkerRef.current.getElement().querySelector('svg');
+      if (svg) (svg as unknown as HTMLElement).style.transform = `rotate(${bearingPx(me, target)}deg)`;
+    }
+  }, [me, target]);
+
+  // Слой.
+  useEffect(() => {
+    if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
+  }, [settings.layer]);
+
+  const redrawVectorOverlay = useCallback(() => {
+    const node = vectorLineRef.current;
+    const map = mapRef.current;
+    if (!node || !map || !me) {
+      if (node) node.style.display = 'none';
+      return;
+    }
+    const a = map.project([me.lng, me.lat]);
+    const b = map.project([target.lng, target.lat]);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) {
+      node.style.display = 'none';
+      return;
+    }
+    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+    node.style.display = 'block';
+    node.style.left = `${a.x}px`;
+    node.style.top = `${a.y}px`;
+    node.style.width = `${len}px`;
+    node.style.transform = `rotate(${angleDeg}deg)`;
+  }, [me, target]);
+
+  useEffect(() => {
+    redrawVectorOverlay();
+  }, [redrawVectorOverlay]);
+
+  // Тайлы для текущей видимой области.
+  const tilesPlanned = useMemo(() => tilesForBox(currentBox, TILE_ZOOMS), [currentBox]);
+  const total = tilesPlanned.length;
+  const sizeBytes = bytesEstimate(total);
+  const tooBig = total > MAX_TILES;
+
+  // Auto-skip: один раз проверим, есть ли все нужные тайлы в кэше.
+  useEffect(() => {
+    if (checkedAutoSkip) return;
+    if (!me) return; // подождём fit
+    setCheckedAutoSkip(true);
+    void allTilesCached(settings.layer, tilesPlanned.slice(0, 200)).then((allHave) => {
+      if (allHave && tilesPlanned.length <= 200) onDone();
+    });
+  }, [checkedAutoSkip, me, settings.layer, tilesPlanned, onDone]);
 
   async function start() {
     if (tooBig) return;
     abortRef.current = new AbortController();
-    setProgress({ done: 0, total: totalCount });
+    setProgress({ done: 0, total });
     await downloadTiles(
       settings.layer,
       tilesPlanned,
       (done, total) => setProgress({ done, total }),
       abortRef.current.signal,
     );
+    // Завершено — авто-переход.
+    setTimeout(onDone, 350);
   }
 
   function cancel() {
@@ -93,274 +207,307 @@ export default function CacheScreen({ settings, target, box, onDone, onSkip, onB
     setProgress(null);
   }
 
+  const distM = me ? distanceM(me, target) : 0;
+  const dist = me ? fmtDist(distM, settings.units) : null;
+  const ready = progress && progress.done >= progress.total && progress.total > 0;
+  const pct = progress ? Math.round((progress.done / Math.max(1, progress.total)) * 100) : 0;
+  const zoomRange = `${TILE_ZOOMS[0]}–${TILE_ZOOMS[TILE_ZOOMS.length - 1]}`;
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: C.bg,
-        color: C.ink,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 'calc(12px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))',
-      }}
-    >
-      {/* head */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <button
-          onClick={onBack}
-          aria-label="back"
-          style={{
-            width: 38,
-            height: 38,
-            background: 'transparent',
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 10,
-            fontSize: 18,
-          }}
-        >
-          ←
-        </button>
-        <div
-          style={{
-            flex: 1,
-            fontFamily: F_MONO,
-            fontSize: 11,
-            letterSpacing: '0.2em',
-            textTransform: 'uppercase',
-            color: C.inkDim,
-          }}
-        >
-          02 / ОФЛАЙН
-        </div>
-        <div style={{ width: 38 }} />
-      </div>
+    <div style={{ position: 'absolute', inset: 0, background: C.bg, color: C.ink, overflow: 'hidden' }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      <div style={{ fontFamily: F_DISP, fontSize: 32, fontWeight: 600, letterSpacing: '-0.02em', marginBottom: 14 }}>
-        Caching
-      </div>
+      {/* Vector overlay */}
+      <div
+        ref={vectorLineRef}
+        style={{
+          position: 'absolute',
+          height: 0,
+          borderTop: `2.5px dashed ${C.target}`,
+          opacity: 0.85,
+          transformOrigin: '0 50%',
+          pointerEvents: 'none',
+          display: 'none',
+          zIndex: 3,
+        }}
+      />
 
-      {/* preview map */}
+      {/* Top card */}
       <div
         style={{
-          position: 'relative',
-          width: '100%',
-          aspectRatio: '1.1 / 1',
-          maxHeight: 360,
-          borderRadius: 14,
-          overflow: 'hidden',
-          border: `2px dashed ${C.target}`,
-          background: 'rgba(255,107,26,0.06)',
+          position: 'absolute',
+          top: 'calc(14px + env(safe-area-inset-top))',
+          left: 12,
+          right: 12,
+          background: 'rgba(17,20,19,0.92)',
+          backdropFilter: 'blur(10px)',
+          border: `1px solid ${tooBig ? C.danger : C.line2}`,
+          borderRadius: 10,
+          padding: '10px 12px',
+          zIndex: 10,
+          transition: 'border-color 200ms',
         }}
       >
-        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-      </div>
-
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <div style={{ fontFamily: F_DISP, fontSize: 16, color: C.ink }}>Видимая область</div>
         <div
           style={{
+            display: 'flex',
+            justifyContent: 'space-between',
             fontFamily: F_MONO,
-            fontSize: 13,
-            color: tooBig ? C.danger : C.target,
-            letterSpacing: '0.06em',
-          }}
-        >
-          ~{fmtBytes(sizeBytes)} · {totalCount} tiles
-        </div>
-      </div>
-
-      {/* zoom slider */}
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          onClick={() => setZoomDelta((z) => Math.max(-2, z - 1))}
-          aria-label="less detail"
-          style={{
-            width: 44,
-            height: 44,
-            background: C.bg2,
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 12,
-            fontSize: 22,
-            fontWeight: 300,
-          }}
-        >
-          −
-        </button>
-        <input
-          type="range"
-          min={-2}
-          max={2}
-          step={1}
-          value={zoomDelta}
-          onChange={(e) => setZoomDelta(Number(e.target.value))}
-          style={{ flex: 1, accentColor: C.target }}
-        />
-        <button
-          onClick={() => setZoomDelta((z) => Math.min(2, z + 1))}
-          aria-label="more detail"
-          style={{
-            width: 44,
-            height: 44,
-            background: C.bg2,
-            border: `1px solid ${C.line2}`,
-            color: C.ink,
-            borderRadius: 12,
-            fontSize: 22,
-            fontWeight: 300,
-          }}
-        >
-          +
-        </button>
-      </div>
-      <div
-        style={{
-          marginTop: 4,
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontFamily: F_MONO,
-          fontSize: 10,
-          letterSpacing: '0.12em',
-          color: C.inkDim,
-          textTransform: 'uppercase',
-        }}
-      >
-        <span>− меньше деталей</span>
-        <span style={{ color: zoomDelta === 0 ? C.ink : C.inkDim }}>
-          {zoomDelta === 0 ? 'СТАНДАРТ' : zoomDelta > 0 ? `+${zoomDelta}` : zoomDelta}
-        </span>
-        <span>+ больше деталей</span>
-      </div>
-
-      {progress && (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span
-              style={{
-                fontFamily: F_MONO,
-                fontSize: 56,
-                fontWeight: 500,
-                color: C.ink,
-                letterSpacing: '-0.04em',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {progress.done}
-            </span>
-            <span style={{ fontFamily: F_MONO, fontSize: 13, color: C.inkDim }}>/ {progress.total} tiles</span>
-          </div>
-          <div style={{ height: 2, background: C.line2, borderRadius: 1, marginTop: 8 }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${(progress.done / Math.max(1, progress.total)) * 100}%`,
-                background: ready ? C.ok : C.target,
-                transition: 'width 200ms linear, background 300ms',
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {tooBig && !progress && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: '10px 12px',
-            background: 'rgba(201,58,26,0.12)',
-            border: `1px solid rgba(201,58,26,0.4)`,
-            borderRadius: 10,
-            color: C.danger,
-            fontFamily: F_MONO,
-            fontSize: 11,
-            letterSpacing: '0.04em',
-          }}
-        >
-          Область слишком большая — лимит {MAX_TILES} тайлов. Увеличьте «− меньше деталей» или приблизьтесь.
-        </div>
-      )}
-
-      <div style={{ flex: 1 }} />
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          onClick={onSkip}
-          style={{
-            flex: 1,
-            height: 56,
-            background: C.bg2,
+            fontSize: 10,
             color: C.inkDim,
-            border: `1px solid ${C.line2}`,
-            borderRadius: 12,
-            fontFamily: F_MONO,
-            fontSize: 12,
-            letterSpacing: '0.16em',
+            letterSpacing: '0.12em',
             textTransform: 'uppercase',
           }}
         >
-          Пропустить
-        </button>
-        {!progress && (
-          <button
-            onClick={start}
-            disabled={tooBig}
+          <span>{tooBig ? 'Область слишком большая' : 'Область кэширования'}</span>
+          <span style={{ color: tooBig ? C.danger : C.target }}>~{fmtBytes(sizeBytes)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+          <span style={{ fontFamily: F_MONO, color: tooBig ? C.danger : C.ink, fontWeight: 500, fontSize: 13 }}>
+            ~{total} тайлов
+          </span>
+          <span style={{ fontFamily: F_MONO, color: C.ink, fontWeight: 500, fontSize: 13 }}>zoom {zoomRange}</span>
+        </div>
+      </div>
+
+      {/* Back */}
+      <button
+        onClick={onBack}
+        aria-label="back"
+        style={{
+          position: 'absolute',
+          left: 12,
+          top: 'calc(72px + env(safe-area-inset-top))',
+          width: 38,
+          height: 38,
+          background: 'rgba(17,20,19,0.85)',
+          backdropFilter: 'blur(10px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 10,
+          color: C.ink,
+          fontSize: 18,
+          zIndex: 10,
+        }}
+      >
+        ←
+      </button>
+
+      {/* Pinch hint */}
+      {!hintHidden && !progress && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 'calc(96px + env(safe-area-inset-bottom))',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(17,20,19,0.85)',
+            backdropFilter: 'blur(8px)',
+            border: `1px solid ${C.line2}`,
+            borderRadius: 999,
+            padding: '6px 14px',
+            fontFamily: F_MONO,
+            fontSize: 10,
+            color: C.inkDim,
+            letterSpacing: '0.1em',
+            zIndex: 5,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ← <span style={{ color: C.target }}>PINCH</span> расширить / сжать охват →
+        </div>
+      )}
+
+      {/* Distance hint when close to target */}
+      {dist && !progress && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 'calc(150px + env(safe-area-inset-bottom))',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontFamily: F_MONO,
+            fontSize: 11,
+            color: C.target,
+            letterSpacing: '0.08em',
+            background: 'rgba(11,13,12,0.92)',
+            border: `1px solid ${C.target}`,
+            borderRadius: 999,
+            padding: '4px 12px',
+            fontWeight: 600,
+            zIndex: 4,
+            pointerEvents: 'none',
+          }}
+        >
+          {dist.v} {dist.u}
+        </div>
+      )}
+
+      {/* Bottom CTA / progress */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          right: 12,
+          bottom: 'calc(12px + env(safe-area-inset-bottom))',
+          zIndex: 10,
+        }}
+      >
+        {progress && !ready && (
+          <div
             style={{
-              flex: 2,
-              height: 56,
-              background: tooBig ? C.bg2 : C.target,
-              color: tooBig ? C.inkDim : C.targetInk,
-              border: tooBig ? `1px solid ${C.line2}` : 'none',
-              borderRadius: 12,
-              fontFamily: F_DISP,
-              fontWeight: 700,
-              fontSize: 16,
-              boxShadow: tooBig ? 'none' : `0 0 24px ${C.glow}`,
-              letterSpacing: '0.02em',
+              background: 'rgba(11,13,12,0.96)',
+              border: `1px solid ${C.line2}`,
+              borderRadius: 10,
+              padding: '10px 12px',
+              marginBottom: 8,
             }}
           >
-            ↓ Caching ({fmtBytes(sizeBytes)})
-          </button>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontFamily: F_MONO,
+                fontSize: 11,
+                color: C.inkDim,
+                letterSpacing: '0.08em',
+              }}
+            >
+              <span>
+                {progress.done} / {progress.total} tiles
+              </span>
+              <span style={{ color: C.target }}>{pct}%</span>
+            </div>
+            <div style={{ height: 3, background: C.line2, borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${pct}%`,
+                  background: C.target,
+                  transition: 'width 200ms linear',
+                }}
+              />
+            </div>
+          </div>
         )}
+
+        {!progress && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onSkip}
+              style={{
+                width: 100,
+                height: 48,
+                background: 'transparent',
+                border: `1px solid ${C.line2}`,
+                color: C.inkDim,
+                borderRadius: 10,
+                fontFamily: F_MONO,
+                fontSize: 11,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Пропустить
+            </button>
+            <button
+              onClick={start}
+              disabled={tooBig}
+              style={{
+                flex: 1,
+                height: 48,
+                background: tooBig ? C.bg2 : C.target,
+                color: tooBig ? C.inkDim : '#fff',
+                border: tooBig ? `1px solid ${C.line2}` : 'none',
+                borderRadius: 10,
+                fontFamily: F_DISP,
+                fontSize: 14,
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+                boxShadow: tooBig ? 'none' : `0 0 24px ${C.glow}`,
+              }}
+            >
+              {tooBig ? 'Слишком большая область' : 'Сохранить область'}
+            </button>
+          </div>
+        )}
+
         {progress && !ready && (
           <button
             onClick={cancel}
             style={{
-              flex: 2,
-              height: 56,
+              width: '100%',
+              height: 48,
               background: 'rgba(201,58,26,0.14)',
               color: C.danger,
               border: `1px solid rgba(201,58,26,0.4)`,
-              borderRadius: 12,
+              borderRadius: 10,
               fontFamily: F_DISP,
-              fontWeight: 600,
               fontSize: 14,
+              fontWeight: 600,
             }}
           >
             Отмена
           </button>
         )}
+
         {ready && (
-          <button
-            onClick={onDone}
+          <div
             style={{
-              flex: 2,
-              height: 56,
-              background: C.target,
-              color: C.targetInk,
+              width: '100%',
+              height: 48,
+              background: C.ok,
+              color: C.bg,
               border: 'none',
-              borderRadius: 12,
+              borderRadius: 10,
               fontFamily: F_DISP,
+              fontSize: 14,
               fontWeight: 700,
-              fontSize: 16,
-              boxShadow: `0 0 24px ${C.glow}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
             }}
           >
-            Старт →
-          </button>
+            ✓ Готово
+          </div>
         )}
       </div>
     </div>
   );
+}
+
+function bearingPx(a: LatLng, b: LatLng): number {
+  // Простой bearing (для маркера); полноценная формула не нужна на этом экране.
+  const dx = b.lng - a.lng;
+  const dy = b.lat - a.lat;
+  return (Math.atan2(dx, dy) * 180) / Math.PI;
+}
+
+function tileUrlVariants(layer: Parameters<typeof tileUrl>[0], z: number, x: number, y: number): string[] {
+  // MapLibre чередует subdomain a/b/c — кэш может быть под любым.
+  const base = tileUrl(layer, z, x, y);
+  const m = base.match(/^https:\/\/([abc])\.([^/]+)/);
+  if (!m) return [base];
+  return ['a', 'b', 'c'].map((s) => base.replace(/^https:\/\/[abc]\./, `https://${s}.`));
+}
+
+async function allTilesCached(layer: Parameters<typeof tileUrl>[0], probe: TilePoint[]): Promise<boolean> {
+  if (!('caches' in window)) return false;
+  try {
+    const cache = await caches.open('map-tiles');
+    for (const t of probe) {
+      const urls = tileUrlVariants(layer, t.z, t.x, t.y);
+      let found = false;
+      for (const u of urls) {
+        if (await cache.match(u)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -12,7 +12,7 @@ import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
 
 export type Settings = {
-  intervalSec: number; // 0..600 step 10
+  intervalSec: number; // 0..900 step 60 (0–15 мин, шаг 1 мин)
   units: 'metric' | 'imperial';
   haptics: boolean;
   lang: VoiceLang; // RU/EN/DE — для голоса
@@ -21,8 +21,11 @@ export type Settings = {
   showTrail: boolean;
 };
 
+export const VOICE_INTERVAL_MAX = 900; // 15 минут
+export const VOICE_INTERVAL_STEP = 60; // 1 минута
+
 const DEFAULT_SETTINGS: Settings = {
-  intervalSec: 900 > 600 ? 600 : 900, // спека: max 600
+  intervalSec: 900, // дефолт — каждые 15 минут
   units: 'metric',
   haptics: true,
   lang: (navigator.language || 'ru').toLowerCase().startsWith('de')
@@ -35,19 +38,21 @@ const DEFAULT_SETTINGS: Settings = {
   showTrail: true,
 };
 
-const SETTINGS_KEY = 'vector.settings.v2';
+const SETTINGS_KEY = 'vector.settings.v3';
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS, intervalSec: 600 };
+    if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const s = { ...DEFAULT_SETTINGS, ...parsed };
-    if (s.intervalSec > 600) s.intervalSec = 600;
+    if (s.intervalSec > VOICE_INTERVAL_MAX) s.intervalSec = VOICE_INTERVAL_MAX;
     if (s.intervalSec < 0) s.intervalSec = 0;
+    // защёлкнем на шаг
+    s.intervalSec = Math.round(s.intervalSec / VOICE_INTERVAL_STEP) * VOICE_INTERVAL_STEP;
     return s;
   } catch {
-    return { ...DEFAULT_SETTINGS, intervalSec: 600 };
+    return { ...DEFAULT_SETTINGS };
   }
 }
 
@@ -65,10 +70,13 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('pick');
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [target, setTarget] = useState<LatLng | null>(null);
+  const [targetName, setTargetName] = useState<string | null>(null);
   const [reverse, setReverse] = useState(false);
   const [resumeTrail, setResumeTrail] = useState<Array<{ lat: number; lng: number; t: number }> | null>(null);
   const [pickBox, setPickBox] = useState<LngLatBox | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // При выходе на Pick из Журнала — попросить открыть sheet на табе trips.
+  const [openJournal, setOpenJournal] = useState(false);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => {
@@ -91,8 +99,9 @@ export default function App() {
     document.documentElement.lang = settings.lang;
   }, [settings.lang]);
 
-  const goCache = useCallback((tg: LatLng, box: LngLatBox) => {
+  const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
     setTarget(tg);
+    setTargetName(name);
     setReverse(false);
     setResumeTrail(null);
     setPickBox(box);
@@ -103,15 +112,36 @@ export default function App() {
   const goPick = useCallback(() => {
     setScreen('pick');
     setTarget(null);
+    setTargetName(null);
     setResumeTrail(null);
     setReverse(false);
   }, []);
+  const goPickJournal = useCallback(() => {
+    setOpenJournal(true);
+    setScreen('pick');
+    setTarget(null);
+    setTargetName(null);
+    setResumeTrail(null);
+    setReverse(false);
+  }, []);
+
+  const goReverseRide = useCallback(
+    (tg: LatLng, trail: Array<{ lat: number; lng: number; t: number }>) => {
+      setTarget(tg);
+      setTargetName('Старт');
+      setReverse(true);
+      setResumeTrail(trail);
+      setScreen('ride');
+    },
+    [],
+  );
 
   const onResumeTrip = useCallback(
     (_tripTarget: LatLng, tripTrail: Array<{ lat: number; lng: number; t: number }>) => {
       // Reverse mode: цель — стартовая точка трека.
       const start = tripTrail[0];
       setTarget({ lat: start.lat, lng: start.lng });
+      setTargetName('Старт');
       setReverse(true);
       setResumeTrail(tripTrail);
       setScreen('ride');
@@ -125,6 +155,7 @@ export default function App() {
         <CacheScreen
           settings={settings}
           target={target}
+          targetName={targetName}
           box={pickBox}
           onSkip={goRide}
           onDone={goRide}
@@ -137,11 +168,14 @@ export default function App() {
         <RideScreen
           settings={settings}
           target={target}
+          targetName={targetName}
           reverse={reverse}
           resumeTrail={resumeTrail}
           onSettings={() => setShowSettings(true)}
           onSettingsChange={updateSettings}
           onExit={goPick}
+          onReverseRide={goReverseRide}
+          onJournal={goPickJournal}
         />
       );
     }
@@ -152,9 +186,11 @@ export default function App() {
         onSettingsChange={updateSettings}
         onConfirm={goCache}
         onResumeTrip={onResumeTrip}
+        openJournal={openJournal}
+        onJournalConsumed={() => setOpenJournal(false)}
       />
     );
-  }, [screen, settings, target, reverse, resumeTrail, pickBox, goCache, goRide, goPick, onResumeTrip, updateSettings]);
+  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, goCache, goRide, goPick, goPickJournal, goReverseRide, onResumeTrip, updateSettings]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
