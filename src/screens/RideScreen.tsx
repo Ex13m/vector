@@ -841,11 +841,44 @@ export default function RideScreen({
         <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
       </div>
 
+      {/* Countdown strip — между HUD и тулбаром */}
+      {nextVoiceSec !== null && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: `calc(76px + env(safe-area-inset-bottom))`,
+            height: 28,
+            background: 'rgba(11,13,12,0.88)',
+            borderTop: `1px solid ${C.line}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            zIndex: 6,
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={nextVoiceSec <= 5 ? C.target : C.inkDim} strokeWidth="2">
+            <path d="M3 10v4h4l5 5V5l-5 5H3z" /><path d="M16 8a5 5 0 010 8" />
+          </svg>
+          <span style={{
+            fontFamily: F_MONO,
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: '0.08em',
+            color: nextVoiceSec <= 5 ? C.target : C.inkDim,
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {fmtCountdown(nextVoiceSec)}
+          </span>
+        </div>
+      )}
+
       {/* Toolbar 4 buttons */}
       <Toolbar
         paused={paused}
         silenced={silenced}
-        nextVoiceSec={nextVoiceSec}
         onPause={() => {
           haptic('medium', settings.haptics);
           setPaused((p) => !p);
@@ -998,7 +1031,6 @@ function fmtCountdown(sec: number): string {
 function Toolbar({
   paused,
   silenced,
-  nextVoiceSec,
   onPause,
   onSay,
   onMute,
@@ -1006,14 +1038,11 @@ function Toolbar({
 }: {
   paused: boolean;
   silenced: boolean;
-  nextVoiceSec: number | null;
   onPause: () => void;
   onSay: () => void;
   onMute: () => void;
   onStop: () => void;
 }) {
-  const countdown = nextVoiceSec !== null ? fmtCountdown(nextVoiceSec) : null;
-  const nearFire = nextVoiceSec !== null && nextVoiceSec <= 5;
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -1042,7 +1071,7 @@ function Toolbar({
           </svg>
         )}
       </ToolButton>
-      <ToolButton onClick={onSay} label="VOICE" sublabel={countdown ?? undefined} sublabelAccent={nearFire}>
+      <ToolButton onClick={onSay} label="VOICE">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M3 10v4h4l5 5V5l-5 5H3z" />
           <path d="M16 8a5 5 0 010 8" />
@@ -1088,15 +1117,11 @@ function ToolButton({
   onClick,
   active,
   label,
-  sublabel,
-  sublabelAccent,
   children,
 }: {
   onClick: () => void;
   active?: boolean;
   label: string;
-  sublabel?: string;
-  sublabelAccent?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -1111,7 +1136,7 @@ function ToolButton({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 2,
+        gap: 3,
         fontFamily: F_MONO,
         fontSize: 9,
         letterSpacing: '0.2em',
@@ -1120,17 +1145,6 @@ function ToolButton({
     >
       {children}
       {label}
-      {sublabel && (
-        <span style={{
-          fontSize: 9,
-          letterSpacing: '0.05em',
-          color: sublabelAccent ? C.target : C.inkDim,
-          fontVariantNumeric: 'tabular-nums',
-          marginTop: -1,
-        }}>
-          {sublabel}
-        </span>
-      )}
     </button>
   );
 }
@@ -1317,6 +1331,39 @@ function ArrivedOverlay({
     mlMapRef.current = m;
 
     const lastTrailPt = trail.length > 0 ? trail[trail.length - 1] : null;
+
+    // ── Маркер цели: простой DOM-элемент, добавляется сразу (не ждёт load).
+    // Это гарантирует видимость даже если стиль карты не загрузился.
+    const tgEl = document.createElement('div');
+    tgEl.style.cssText = [
+      `width:22px`,
+      `height:22px`,
+      `border-radius:50%`,
+      `background:${C.target}`,
+      `border:3px solid #fff`,
+      `box-shadow:0 0 0 2px ${C.target},0 0 12px ${C.glow}`,
+      `pointer-events:none`,
+    ].join(';');
+    new maplibregl.Marker({ element: tgEl, anchor: 'center' })
+      .setLngLat([target.lng, target.lat])
+      .addTo(m);
+
+    // Маркер старта — тоже сразу.
+    if (trail.length > 0) {
+      const stEl = document.createElement('div');
+      stEl.style.cssText = [
+        `width:14px`,
+        `height:14px`,
+        `border-radius:50%`,
+        `background:${C.ok}`,
+        `border:2px solid #fff`,
+        `box-shadow:0 0 8px ${C.okGlow}`,
+        `pointer-events:none`,
+      ].join(';');
+      new maplibregl.Marker({ element: stEl, anchor: 'center' })
+        .setLngLat([trail[0].lng, trail[0].lat])
+        .addTo(m);
+    }
 
     m.on('load', () => {
       // Зелёный пунктирный трек.
