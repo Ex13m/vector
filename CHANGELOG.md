@@ -2,6 +2,18 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.6] — 2026-05-12
+
+### Производительность
+
+- **Heading throttle** (`src/lib/orientation.ts`): `deviceorientation` событие летело ~60 Hz, на каждом срабатывал `setHeading` → re-render всего RideScreen + пересчёт `courseHeading` useMemo (O(n) walk по треку). Теперь handler вызывается ≤10 Hz и только при дельте ≥2°. Самый большой выигрыш — сотни trig-операций в секунду уходят.
+- **`ridden` incremental accumulator**: вместо O(n) прохода по всему треку при каждом re-render (`useMemo([trail])`) — дельта считается в GPS-callback и аккумулируется в ref. O(1) на фикс.
+- **`map.easeTo` → `map.jumpTo`** в auto-follow: 800ms анимация прерывалась каждым GPS-тиком (1 Hz), MapLibre дёргал tile/label re-render → GPU гонял зря. Прямой `jumpTo` даёт ту же визуальную плавность (фиксы и так регулярные).
+- **Trail coords buffer**: вместо `trail.map(p => [p.lng, p.lat])` (2000 новых nested arrays каждый тик → GC pressure) держим один Array<[lng,lat]> в ref, аппендим только новые точки.
+- **Стабильный auto-save interval**: пересоздавался каждый GPS-фикс (`trail`/`time` в deps) → JSON.stringify никогда не достигал интервала. Теперь read-через-ref, interval стабилен.
+- **Voice loop стабильный**: `me` в deps пересоздавал `setInterval` каждую секунду → периодическое озвучивание никогда не срабатывало (interval сбрасывался до того как `intervalSec * 1000` истечёт). Заменили на стабильный флаг `hasFix` (false → true один раз).
+- **Workbox cache size**: добавлен `maximumFileSizeToCacheInBytes: 5MB`. MapLibre worker chunks (>2MB дефолт) больше не выпадают из precache → офлайн не ломается.
+
 ## [0.5.5] — 2026-05-12
 
 ### Добавлено

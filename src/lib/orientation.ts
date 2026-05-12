@@ -25,7 +25,18 @@ export async function requestIosPermission(): Promise<boolean> {
   }
 }
 
+/**
+ * Подписка на компас. Фильтр: handler вызывается ТОЛЬКО если
+ * (а) дельта heading >= MIN_DELTA_DEG и
+ * (б) с прошлого вызова прошло >= MIN_INTERVAL_MS.
+ * Без фильтра событие летит на 60Hz → весь useMemo цикл re-render-ится.
+ */
 export function startHeading(handler: HeadingHandler): () => void {
+  const MIN_DELTA_DEG = 2;
+  const MIN_INTERVAL_MS = 100; // ~10 Hz
+  let lastEmitted = -999;
+  let lastEmitAt = 0;
+
   const onOrient = (e: DeviceOrientationEvent) => {
     const anyE = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
     let heading: number | null = null;
@@ -34,7 +45,19 @@ export function startHeading(handler: HeadingHandler): () => void {
     } else if (e.absolute && e.alpha !== null) {
       heading = (360 - (e.alpha as number)) % 360;
     }
-    if (heading !== null && !Number.isNaN(heading)) handler(heading);
+    if (heading === null || Number.isNaN(heading)) return;
+
+    const now = Date.now();
+    if (now - lastEmitAt < MIN_INTERVAL_MS) return;
+    // Угловая дистанция с учётом 360→0 wrap.
+    const delta = Math.min(
+      Math.abs(heading - lastEmitted),
+      360 - Math.abs(heading - lastEmitted),
+    );
+    if (delta < MIN_DELTA_DEG) return;
+    lastEmitted = heading;
+    lastEmitAt = now;
+    handler(heading);
   };
   window.addEventListener('deviceorientationabsolute' as keyof WindowEventMap, onOrient as EventListener);
   window.addEventListener('deviceorientation', onOrient as EventListener);

@@ -113,6 +113,24 @@ export default function RideScreen({
   const speedMaxRef = useRef(savedSession?.speedMaxMps ?? 0);
   const lastVoiceRef = useRef(0);
   const lastGpsAtRef = useRef(0);
+  // ── Incremental ridden accumulator: считаем дельту в GPS-callback вместо
+  // прохода по всему trail на каждый re-render (O(n) → O(1) per fix).
+  const riddenRef = useRef<number>(0);
+  const lastTrailPointRef = useRef<TrailPoint | null>(null);
+  // Один раз инициализируем из сохранённого трека (при восстановлении сессии).
+  if (riddenRef.current === 0 && lastTrailPointRef.current === null) {
+    const initial = savedSession?.trail ?? resumeTrail ?? [];
+    if (initial.length > 0) {
+      let total = 0;
+      for (let i = 1; i < initial.length; i++) {
+        const d = distanceM(initial[i - 1], initial[i]);
+        if (d > 1 && d < 300) total += d;
+      }
+      riddenRef.current = total;
+      lastTrailPointRef.current = initial[initial.length - 1];
+    }
+  }
+  const [riddenM, setRiddenM] = useState<number>(() => riddenRef.current);
   const userPanTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const lastClockRef = useRef<number | null>(null);
@@ -219,10 +237,20 @@ export default function RideScreen({
         if (paused) return;
         const phase = nextState.phase;
         if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
+        // Дедупликация и accumulator ridden вне setTrail callback —
+        // иначе StrictMode (двойной вызов) удвоит дельту.
+        const lastPt = lastTrailPointRef.current;
+        const minDist = phase === 'SHORT_STOP' ? 5 : 2;
+        if (lastPt) {
+          const d = distanceM(lastPt, p);
+          if (d < minDist) return; // слишком близко — не добавляем
+          if (d > 1 && d < 300) {
+            riddenRef.current += d;
+            setRiddenM(riddenRef.current);
+          }
+        }
+        lastTrailPointRef.current = p;
         setTrail((tr) => {
-          const last = tr[tr.length - 1];
-          const minDist = phase === 'SHORT_STOP' ? 5 : 2; // жёстче фильтр на стоянке
-          if (last && distanceM(last, p) < minDist) return tr;
           const next = [...tr, p];
           return next.length > 2000 ? next.slice(-2000) : next;
         });
@@ -245,27 +273,38 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, []);
 
-  // ── Auto-save сессии: сохраняем в localStorage каждые 3 секунды.
-  // Если ОС убьёт вкладку — при перезагрузке App восстановит поездку.
+  // ── Auto-save сессии. Стабильный interval — не пересоздаётся при каждом
+  // обновлении trail/time/etc. Чтение из refs, чтобы было видно «свежие»
+  // значения без перезапуска эффекта (избегаем JSON.stringify в setInterval
+  // setup/teardown цикле).
+  const sessionSnapshotRef = useRef({
+    target, targetName, reverse, trail, time, ridePhase, paused, arrived,
+  });
   useEffect(() => {
-    if (arrived) return; // не перезаписываем после финиша
+    sessionSnapshotRef.current = {
+      target, targetName, reverse, trail, time, ridePhase, paused, arrived,
+    };
+  }, [target, targetName, reverse, trail, time, ridePhase, paused, arrived]);
+  useEffect(() => {
     const id = window.setInterval(() => {
+      const s = sessionSnapshotRef.current;
+      if (s.arrived) return;
       saveRideSession({
-        target,
-        targetName,
-        reverse,
-        trail,
-        elapsedSec: time,
+        target: s.target,
+        targetName: s.targetName,
+        reverse: s.reverse,
+        trail: s.trail,
+        elapsedSec: s.time,
         machineState: machineRef.current,
-        ridePhase,
+        ridePhase: s.ridePhase,
         speedMaxMps: speedMaxRef.current,
         startedAt: startedAtRef.current,
-        paused,
+        paused: s.paused,
         savedAt: Date.now(),
       });
     }, 3000);
     return () => window.clearInterval(id);
-  }, [target, targetName, reverse, trail, time, ridePhase, paused, arrived]);
+  }, []);
 
   // ── iOS heading permission.
   useEffect(() => {
@@ -483,21 +522,31 @@ export default function RideScreen({
     }
   }, [me, target, mapKey]); // mapKey гарантирует перезапуск после remount карты
 
-  // ── Trail redraw + vector line redraw.
+  // ── Trail redraw — инкрементальный буфер координат.
+  // Вместо trail.map(p => [p.lng, p.lat]) каждый тик (2000 новых nested
+  // arrays = GC pressure), держим единый Array<[lng,lat]> и аппендим
+  // только новые точки.
+  const trailCoordsRef = useRef<[number, number][]>([]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
-    if (src) {
-      src.setData({
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: settings.showTrail ? trail.map((p) => [p.lng, p.lat]) : [],
-        },
-        properties: {},
-      });
+    if (!src) return;
+    if (!settings.showTrail) {
+      trailCoordsRef.current = [];
+    } else if (trail.length === trailCoordsRef.current.length + 1) {
+      // Обычный случай — добавилась 1 точка.
+      const p = trail[trail.length - 1];
+      trailCoordsRef.current.push([p.lng, p.lat]);
+    } else if (trail.length !== trailCoordsRef.current.length) {
+      // Rebuild — slice/resume/clear.
+      trailCoordsRef.current = trail.map((p) => [p.lng, p.lat]);
     }
+    src.setData({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: trailCoordsRef.current },
+      properties: {},
+    });
   }, [trail, settings.showTrail]);
 
   useEffect(() => {
@@ -514,12 +563,14 @@ export default function RideScreen({
   }, [me, target]);
 
   // ── Auto-follow: карта следует за GPS если пользователь не пэнил.
-  // Таймер 5s сбрасывался каждый тик — карта никогда не центрировалась.
-  // Теперь просто easeTo на каждый GPS-апдейт пока userPanned=false.
+  // jumpTo (без анимации) вместо easeTo(800ms) — иначе при 1Hz GPS
+  // новая анимация прерывает старую каждый тик, MapLibre дёргает tile/label
+  // re-render → жрёт GPU и батарею. Перемещение и так визуально плавное
+  // т.к. фиксы приходят регулярно.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me || userPanned) return;
-    map.easeTo({ center: [me.lng, me.lat], duration: 800 });
+    map.jumpTo({ center: [me.lng, me.lat] });
   }, [me, userPanned]);
 
   // ── Sec timer (стопается на pause и в PRE_RIDE/LONG_STOP).
@@ -590,14 +641,8 @@ export default function RideScreen({
     return () => window.clearTimeout(t);
   }, [ridePhase]);
 
-  const ridden = useMemo(() => {
-    let total = 0;
-    for (let i = 1; i < trail.length; i++) {
-      const d = distanceM(trail[i - 1], trail[i]);
-      if (d > 1 && d < 300) total += d;
-    }
-    return total;
-  }, [trail]);
+  // ridden теперь incremental accumulator (см. riddenRef в GPS-callback).
+  const ridden = riddenM;
 
   const avgMps = time > 0 ? ridden / time : 0;
 
@@ -723,8 +768,17 @@ export default function RideScreen({
     };
   }, [settings.haptics, settings.lang, settings.voiceURI, silenced]);
 
+  // hasFix — стабильный флаг (false→true один раз когда пришёл первый GPS).
+  // Используется вместо `me` в deps voice/countdown effects чтобы interval
+  // не пересоздавался на каждом фиксе (иначе он никогда не «доживёт» до
+  // intervalSec * 1000 ms).
+  const [hasFix, setHasFix] = useState<boolean>(() => !!savedSession?.trail?.length);
   useEffect(() => {
-    if (silenced || paused || arrived || settings.intervalSec === 0 || !me) return;
+    if (me && !hasFix) setHasFix(true);
+  }, [me, hasFix]);
+
+  useEffect(() => {
+    if (silenced || paused || arrived || settings.intervalSec === 0 || !hasFix) return;
     if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastVoiceRef.current === 0 && !pendingWakeSpeak) {
       lastVoiceRef.current = Date.now();
@@ -735,13 +789,13 @@ export default function RideScreen({
       speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak, ridePhase]);
+  }, [silenced, paused, arrived, settings.intervalSec, hasFix, pendingWakeSpeak, ridePhase]);
 
   // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
   // Скрыт в PRE_RIDE / LONG_STOP — голос там молчит.
   const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
   useEffect(() => {
-    if (silenced || paused || arrived || settings.intervalSec === 0 || !me
+    if (silenced || paused || arrived || settings.intervalSec === 0 || !hasFix
         || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') {
       setNextVoiceSec(null);
       return;
@@ -758,7 +812,7 @@ export default function RideScreen({
     update();
     const id = window.setInterval(update, 500);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, me, ridePhase]);
+  }, [silenced, paused, arrived, settings.intervalSec, hasFix, ridePhase]);
 
   // ── Haptics + звуковой сигнал на смену часа.
   // При переходе на 12 — двойной восходящий beep «цель впереди» + усиленная вибра.

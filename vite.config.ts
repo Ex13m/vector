@@ -27,6 +27,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
+        // MapLibre worker chunks могут быть >2MB (дефолт). Без этого
+        // workbox молча выкидывает их из precache → офлайн ломается.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: '/index.html',
         runtimeCaching: [
           {
