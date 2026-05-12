@@ -125,19 +125,72 @@ export default function RideScreen({
     return () => stopWakeAudio();
   }, []);
 
+  // ── Screen Wake Lock: не даём экрану гаснуть пока идёт поездка.
+  // API поддерживается Chrome 84+, Safari 16.4+, Edge 84+.
+  // Lock автоматически отпускается при скрытии вкладки — перезапрашиваем
+  // при visibilitychange. Во время паузы отпускаем чтобы экран мог погаснуть.
+  useEffect(() => {
+    if (!('wakeLock' in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let released = false;
+
+    const requestLock = async () => {
+      if (released || paused || arrived) return;
+      try {
+        lock = await navigator.wakeLock.request('screen');
+        lock.addEventListener('release', () => { lock = null; });
+      } catch {
+        // не поддерживается / отклонено / low battery
+      }
+    };
+
+    requestLock();
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') requestLock();
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      released = true;
+      document.removeEventListener('visibilitychange', onVis);
+      lock?.release();
+    };
+  }, [paused, arrived]);
+
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
+  //
+  // Gap detection: если между фиксами >SLEEP_GAP_MS — экран был выключен,
+  // GPS остановлен, реального простоя не было. Сбрасываем slowSince и
+  // phaseEnteredAt чтобы state machine не прыгнул в SHORT_STOP/LONG_STOP.
+  const SLEEP_GAP_MS = 15_000;
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
-        lastGpsAtRef.current = Date.now();
-        setGpsLost(false);
+        const prevGpsAt = lastGpsAtRef.current;
         const now = Date.now();
+        lastGpsAtRef.current = now;
+        setGpsLost(false);
         const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: now };
         setMe({ lat: p.lat, lng: p.lng });
         const rawSpeed = pos.coords.speed ?? 0;
         if (rawSpeed > speedMaxRef.current) speedMaxRef.current = rawSpeed;
+
+        // ── Gap detection: экран был выключен → сброс таймеров state machine
+        const gapMs = prevGpsAt > 0 ? now - prevGpsAt : 0;
+        const isSleepGap = gapMs > SLEEP_GAP_MS;
+        if (isSleepGap) {
+          const m = machineRef.current;
+          machineRef.current = {
+            ...m,
+            slowSince: null,            // не считать паузу остановкой
+            phaseEnteredAt: now,         // сбросить таймер SHORT→LONG
+            fastFixCount: 0,
+            resumeFixCount: 0,
+          };
+        }
 
         // ── Tick state machine
         const machine = machineRef.current;
