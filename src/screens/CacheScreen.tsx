@@ -78,12 +78,13 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
 
     map.on('load', () => {
       addVectorSource(map);
-      // Маркер цели — контейнер совпадает по размеру с пульсом, иконка центрована флексом.
+      // Маркер цели — каждый слой явно центрован через translate(-50%,-50%).
       const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
       tg.innerHTML = `
-        <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 8px ${C.glow})">
+        <div style="position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
+             style="position:absolute;left:50%;top:50%;margin:-12px 0 0 -12px;filter:drop-shadow(0 0 8px ${C.glow})">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="3" fill="${C.target}"/>
         </svg>`;
@@ -179,10 +180,11 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
       const deg = bearingPx(me, target);
-      el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
       el.innerHTML = `
-        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
-        <svg width="26" height="26" viewBox="0 0 24 24" style="transform: rotate(${deg}deg)">
+        <div style="position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
+        <svg width="26" height="26" viewBox="0 0 24 24"
+             style="position:absolute;left:50%;top:50%;margin:-13px 0 0 -13px;transform: rotate(${deg}deg)">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);

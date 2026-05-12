@@ -206,12 +206,13 @@ export default function RideScreen({
         },
       });
 
-      // Маркер цели — контейнер = пульсу, иконка центрована.
+      // Маркер цели — 1×1 anchor + дети с translate(-50%,-50%).
       const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:60px;height:60px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
       tg.innerHTML = `
-        <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 10px ${C.glow})">
+        <div style="position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
+             style="position:absolute;left:50%;top:50%;margin:-12px 0 0 -12px;filter:drop-shadow(0 0 10px ${C.glow})">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="3" fill="${C.target}"/>
         </svg>`;
@@ -272,10 +273,11 @@ export default function RideScreen({
     if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
       el.innerHTML = `
-        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.20);box-shadow:0 0 0 5px rgba(72,222,148,0.10),0 0 14px rgba(72,222,148,0.45)"></div>
-        <svg width="26" height="26" viewBox="0 0 24 24" style="transform: rotate(0deg);transition: transform 200ms ease-out">
+        <div style="position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:rgba(72,222,148,0.20);box-shadow:0 0 0 6px rgba(72,222,148,0.10),0 0 14px rgba(72,222,148,0.45)"></div>
+        <svg width="26" height="26" viewBox="0 0 24 24"
+             style="position:absolute;left:50%;top:50%;margin:-13px 0 0 -13px;transform: rotate(0deg);transition: transform 200ms ease-out">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meArrowRef.current = el.querySelector('svg');
@@ -1259,8 +1261,31 @@ function ArrivedOverlay({
       interactive: false,
     });
     mlMapRef.current = m;
+
+    // Маркеры добавляем сразу — не ждём load, чтоб появлялись даже при offline-тайлах.
+    const lastTrailPt = trail.length > 0 ? trail[trail.length - 1] : null;
+    // Target — 1×1 anchor + centered children.
+    const tg = document.createElement('div');
+    tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
+    tg.innerHTML = `
+      <div style="position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.7"></div>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
+           style="position:absolute;left:50%;top:50%;margin:-11px 0 0 -11px;filter:drop-shadow(0 0 10px ${C.glow})">
+        <circle cx="12" cy="12" r="9"/>
+        <circle cx="12" cy="12" r="3" fill="${C.target}"/>
+      </svg>`;
+    new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(m);
+    // Start marker.
+    if (trail.length > 0) {
+      const start = trail[0];
+      const st = document.createElement('div');
+      st.style.cssText = `position:relative;width:1px;height:1px;pointer-events:none;overflow:visible`;
+      st.innerHTML = `<div style="position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 8px ${C.okGlow}"></div>`;
+      new maplibregl.Marker({ element: st, anchor: 'center' }).setLngLat([start.lng, start.lat]).addTo(m);
+    }
+
     m.on('load', () => {
-      // Trail (green)
+      // Зелёный пунктирный трек.
       if (trail.length > 1) {
         m.addSource('trip', {
           type: 'geojson',
@@ -1274,39 +1299,44 @@ function ArrivedOverlay({
           id: 'trip-line',
           type: 'line',
           source: 'trip',
-          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.9 },
+          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.9, 'line-dasharray': [2, 3] },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
       }
-      // Target marker
-      const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center;pointer-events:none';
-      tg.innerHTML = `
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5" style="filter:drop-shadow(0 0 10px ${C.glow})">
-          <circle cx="12" cy="12" r="9"/>
-          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
-        </svg>`;
-      new maplibregl.Marker({ element: tg }).setLngLat([target.lng, target.lat]).addTo(m);
-      // Start marker (если есть trail)
-      if (trail.length > 0) {
-        const start = trail[0];
-        const st = document.createElement('div');
-        st.style.cssText = `width:14px;height:14px;border-radius:50%;background:${C.ok};border:2px solid ${C.bg};box-shadow:0 0 8px ${C.okGlow};pointer-events:none`;
-        new maplibregl.Marker({ element: st, anchor: 'center' }).setLngLat([start.lng, start.lat]).addTo(m);
-      }
-      // FitBounds на trail+target
-      if (trail.length > 0) {
-        const lngs = [target.lng, ...trail.map((p) => p.lng)];
-        const lats = [target.lat, ...trail.map((p) => p.lat)];
-        m.fitBounds(
-          [
-            [Math.min(...lngs), Math.min(...lats)],
-            [Math.max(...lngs), Math.max(...lats)],
-          ],
-          { padding: 24, animate: false, maxZoom: 16 },
-        );
+      // Оранжевый пунктир «последняя точка → цель».
+      if (lastTrailPt) {
+        m.addSource('vector', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [[lastTrailPt.lng, lastTrailPt.lat], [target.lng, target.lat]],
+            },
+            properties: {},
+          },
+        });
+        m.addLayer({
+          id: 'vector-line',
+          type: 'line',
+          source: 'vector',
+          paint: { 'line-color': C.target, 'line-width': 2, 'line-opacity': 0.75, 'line-dasharray': [3, 3] },
+        });
       }
     });
+
+    // FitBounds — сразу, не ждём load (работает на пустой карте).
+    if (trail.length > 0) {
+      const lngs = [target.lng, ...trail.map((p) => p.lng)];
+      const lats = [target.lat, ...trail.map((p) => p.lat)];
+      m.fitBounds(
+        [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ],
+        { padding: 32, animate: false, maxZoom: 16 },
+      );
+    }
     return () => {
       m.remove();
       mlMapRef.current = null;

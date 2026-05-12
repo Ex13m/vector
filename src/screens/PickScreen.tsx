@@ -128,11 +128,11 @@ export default function PickScreen({
     if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      el.style.cssText =
-        'width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative;pointer-events:none';
+      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
       el.innerHTML = `
-        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
-        <svg width="28" height="28" viewBox="0 0 24 24" style="transform: rotate(0deg);transition: transform 200ms ease-out">
+        <div style="position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24"
+             style="position:absolute;left:50%;top:50%;margin:-14px 0 0 -14px;transform: rotate(0deg);transition: transform 200ms ease-out">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meArrowRef.current = el.querySelector('svg');
@@ -160,10 +160,11 @@ export default function PickScreen({
     targetMarkerRef.current = null;
     if (!target) return;
     const el = document.createElement('div');
-    el.style.cssText = 'position:relative;width:48px;height:48px;display:flex;align-items:center;justify-content:center;cursor:grab';
+    el.style.cssText = 'position:relative;width:1px;height:1px;cursor:grab;overflow:visible';
     el.innerHTML = `
-      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2" style="filter:drop-shadow(0 0 10px ${C.glow})">
+      <div style="position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out;opacity:0.8"></div>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2"
+           style="position:absolute;left:50%;top:50%;margin:-14px 0 0 -14px;filter:drop-shadow(0 0 10px ${C.glow})">
         <circle cx="12" cy="12" r="10"/>
         <circle cx="12" cy="12" r="5"/>
         <circle cx="12" cy="12" r="2" fill="${C.target}"/>
