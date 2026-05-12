@@ -486,6 +486,27 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak]);
 
+  // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
+  const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
+  useEffect(() => {
+    if (silenced || paused || arrived || settings.intervalSec === 0 || !me) {
+      setNextVoiceSec(null);
+      return;
+    }
+    const update = () => {
+      if (lastVoiceRef.current === 0) {
+        setNextVoiceSec(settings.intervalSec); // ещё не было первой фразы
+        return;
+      }
+      const elapsed = (Date.now() - lastVoiceRef.current) / 1000;
+      const remaining = Math.max(0, settings.intervalSec - elapsed);
+      setNextVoiceSec(Math.ceil(remaining));
+    };
+    update();
+    const id = window.setInterval(update, 500);
+    return () => window.clearInterval(id);
+  }, [silenced, paused, arrived, settings.intervalSec, me]);
+
   // ── Haptics + звуковой сигнал на смену часа.
   // При переходе на 12 — двойной восходящий beep «цель впереди» + усиленная вибра.
   useEffect(() => {
@@ -824,6 +845,7 @@ export default function RideScreen({
       <Toolbar
         paused={paused}
         silenced={silenced}
+        nextVoiceSec={nextVoiceSec}
         onPause={() => {
           haptic('medium', settings.haptics);
           setPaused((p) => !p);
@@ -966,9 +988,17 @@ function HudCell({ label, value, unit, accent }: { label: string; value: string;
   );
 }
 
+function fmtCountdown(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m > 0) return `${m}:${String(s).padStart(2, '0')}`;
+  return `0:${String(s).padStart(2, '0')}`;
+}
+
 function Toolbar({
   paused,
   silenced,
+  nextVoiceSec,
   onPause,
   onSay,
   onMute,
@@ -976,11 +1006,14 @@ function Toolbar({
 }: {
   paused: boolean;
   silenced: boolean;
+  nextVoiceSec: number | null;
   onPause: () => void;
   onSay: () => void;
   onMute: () => void;
   onStop: () => void;
 }) {
+  const countdown = nextVoiceSec !== null ? fmtCountdown(nextVoiceSec) : null;
+  const nearFire = nextVoiceSec !== null && nextVoiceSec <= 5;
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -1009,7 +1042,7 @@ function Toolbar({
           </svg>
         )}
       </ToolButton>
-      <ToolButton onClick={onSay} label="VOICE">
+      <ToolButton onClick={onSay} label="VOICE" sublabel={countdown ?? undefined} sublabelAccent={nearFire}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M3 10v4h4l5 5V5l-5 5H3z" />
           <path d="M16 8a5 5 0 010 8" />
@@ -1055,11 +1088,15 @@ function ToolButton({
   onClick,
   active,
   label,
+  sublabel,
+  sublabelAccent,
   children,
 }: {
   onClick: () => void;
   active?: boolean;
   label: string;
+  sublabel?: string;
+  sublabelAccent?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -1074,7 +1111,7 @@ function ToolButton({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 3,
+        gap: 2,
         fontFamily: F_MONO,
         fontSize: 9,
         letterSpacing: '0.2em',
@@ -1083,6 +1120,17 @@ function ToolButton({
     >
       {children}
       {label}
+      {sublabel && (
+        <span style={{
+          fontSize: 9,
+          letterSpacing: '0.05em',
+          color: sublabelAccent ? C.target : C.inkDim,
+          fontVariantNumeric: 'tabular-nums',
+          marginTop: -1,
+        }}>
+          {sublabel}
+        </span>
+      )}
     </button>
   );
 }
@@ -1249,9 +1297,15 @@ function ArrivedOverlay({
   const max = fmtSpeed(maxMps, units);
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mlMapRef = useRef<MlMap | null>(null);
+  // Замораживаем trail и target при монтировании — GPS продолжает работать
+  // после прибытия и trail обновляется, что пересоздавало карту каждую секунду.
+  const frozenTrail = useRef(trail);
+  const frozenTarget = useRef(target);
 
   useEffect(() => {
     if (!mapRef.current || mlMapRef.current) return;
+    const trail = frozenTrail.current;
+    const target = frozenTarget.current;
     const m = new maplibregl.Map({
       container: mapRef.current,
       style: styleFor('sat'),
@@ -1371,7 +1425,8 @@ function ArrivedOverlay({
       m.remove();
       mlMapRef.current = null;
     };
-  }, [target, trail]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // пустые deps — карта создаётся один раз, trail/target зафиксированы в ref
   return (
     <div
       onClick={(e) => e.stopPropagation()}
