@@ -24,7 +24,14 @@ import {
   relativeToClockHM,
   type LatLng,
 } from '../lib/geo';
-import { startHeading, bearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
+import { startHeading, bearingFromTrail, smoothedBearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
+import {
+  type RidePhase,
+  type TransitionSignal,
+  createInitialState,
+  tickMachine,
+  STOP_SPEED_MPS,
+} from '../lib/rideStateMachine';
 import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
@@ -89,6 +96,14 @@ export default function RideScreen({
   const [pendingWakeSpeak, setPendingWakeSpeak] = useState(false);
   const [layerOpen, setLayerOpen] = useState(false);
 
+  // ── Ride state machine (PRE_RIDE / RIDING / SHORT_STOP / LONG_STOP)
+  const [ridePhase, setRidePhase] = useState<RidePhase>('PRE_RIDE');
+  const machineRef = useRef(createInitialState(null));
+  const lastRidingBearingRef = useRef(0);
+  const resumeVoiceTimerRef = useRef<number | null>(null);
+  // Ref-обёртка для handleTransitionSignal чтобы GPS-callback не зависел от state
+  const transitionHandlerRef = useRef<(sig: TransitionSignal) => void>(() => {});
+
   const startedAtRef = useRef<number>(Date.now());
   const speedMaxRef = useRef(0);
   const lastVoiceRef = useRef(0);
@@ -111,21 +126,45 @@ export default function RideScreen({
     return () => stopWakeAudio();
   }, []);
 
-  // ── GPS: одиночная подписка. Pause останавливает ЗАПИСЬ трека (но не watch).
+  // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
+  // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         lastGpsAtRef.current = Date.now();
         setGpsLost(false);
-        const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: Date.now() };
+        const now = Date.now();
+        const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: now };
         setMe({ lat: p.lat, lng: p.lng });
-        const s = pos.coords.speed ?? 0;
-        if (s > speedMaxRef.current) speedMaxRef.current = s;
+        const rawSpeed = pos.coords.speed ?? 0;
+        if (rawSpeed > speedMaxRef.current) speedMaxRef.current = rawSpeed;
+
+        // ── Tick state machine
+        const machine = machineRef.current;
+        // Установить якорь при первом фиксе
+        if (!machine.anchorPoint) {
+          machine.anchorPoint = { lat: p.lat, lng: p.lng };
+        }
+        const anchor = machine.anchorPoint;
+        const distFromAnchor = anchor ? distanceM(anchor, p) : 0;
+        const { nextState, signal } = tickMachine(machine, {
+          pos: p, speedMps: rawSpeed, timestamp: now, distFromAnchor,
+        });
+        machineRef.current = nextState;
+        if (nextState.phase !== machine.phase) {
+          setRidePhase(nextState.phase);
+        }
+        if (signal) transitionHandlerRef.current(signal);
+
+        // ── Запись трека: только RIDING и SHORT_STOP
         if (paused) return;
+        const phase = nextState.phase;
+        if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
         setTrail((tr) => {
           const last = tr[tr.length - 1];
-          if (last && distanceM(last, p) < 2) return tr;
+          const minDist = phase === 'SHORT_STOP' ? 5 : 2; // жёстче фильтр на стоянке
+          if (last && distanceM(last, p) < minDist) return tr;
           const next = [...tr, p];
           return next.length > 2000 ? next.slice(-2000) : next;
         });
@@ -133,7 +172,10 @@ export default function RideScreen({
       () => setGpsLost(true),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 30_000 },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
+    };
   }, [paused]);
 
   // ── GPS-lost watchdog: если давно не было фикса — поднять флаг.
@@ -400,12 +442,12 @@ export default function RideScreen({
     map.easeTo({ center: [me.lng, me.lat], duration: 800 });
   }, [me, userPanned]);
 
-  // ── Sec timer (стопается на pause).
+  // ── Sec timer (стопается на pause и в PRE_RIDE/LONG_STOP).
   useEffect(() => {
-    if (paused) return;
+    if (paused || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     const id = setInterval(() => setTime((s) => s + 1), 1000);
     return () => clearInterval(id);
-  }, [paused]);
+  }, [paused, ridePhase]);
 
   // Auto-hide chrome убран — по требованию иконки всегда видны.
 
@@ -423,13 +465,25 @@ export default function RideScreen({
     if (liveSpeedMps > speedMaxRef.current) speedMaxRef.current = liveSpeedMps;
   }, [liveSpeedMps]);
 
-  // Dual-mode heading.
+  // ── 4-phase heading.
+  // RIDING: сглаженный вектор ~40м назад по треку
+  // SHORT_STOP: замороженный последний вектор езды
+  // PRE_RIDE / LONG_STOP: компас (heading от магнитометра)
   const courseHeading = useMemo(() => {
-    if (liveSpeedMps > 0.5 && trail.length >= 2) {
-      return bearingFromTrail(trail[trail.length - 2], trail[trail.length - 1]);
+    switch (ridePhase) {
+      case 'RIDING': {
+        const smoothed = smoothedBearingFromTrail(trail, 40);
+        if (smoothed !== null) lastRidingBearingRef.current = smoothed;
+        return smoothed ?? heading;
+      }
+      case 'SHORT_STOP':
+        return lastRidingBearingRef.current;
+      case 'PRE_RIDE':
+      case 'LONG_STOP':
+      default:
+        return heading;
     }
-    return heading;
-  }, [liveSpeedMps, trail, heading]);
+  }, [ridePhase, trail, heading]);
 
   const bearing = me ? bearingTo(me, target) : 0;
   const rel = ((bearing - courseHeading) % 360 + 360) % 360;
@@ -445,6 +499,16 @@ export default function RideScreen({
     if (!svg) return;
     (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading}deg)`;
   }, [courseHeading]);
+
+  // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
+  useEffect(() => {
+    const svg = meArrowRef.current;
+    if (!svg) return;
+    const el = svg as unknown as HTMLElement;
+    el.style.transitionDuration = '500ms';
+    const t = window.setTimeout(() => { el.style.transitionDuration = '200ms'; }, 600);
+    return () => window.clearTimeout(t);
+  }, [ridePhase]);
 
   const ridden = useMemo(() => {
     let total = 0;
@@ -480,11 +544,13 @@ export default function RideScreen({
     }
   }, [silenced, settings.haptics, settings.lang, settings.voiceURI]);
 
-  // ── Поездка достигнута: <ARRIVED_M, либо вручную Stop.
+  // ── Поездка достигнута: <ARRIVED_M, только в RIDING.
+  // В PRE_RIDE GPS-джиттер может «приблизить» к цели — игнорируем.
   useEffect(() => {
     if (!me || arrived || paused) return;
+    if (ridePhase !== 'RIDING') return;
     if (distM < ARRIVED_M) triggerArrived();
-  }, [me, distM, arrived, paused, triggerArrived]);
+  }, [me, distM, arrived, paused, ridePhase, triggerArrived]);
 
   // ── Auto-save поездки при arrived (один раз).
   useEffect(() => {
@@ -537,8 +603,48 @@ export default function RideScreen({
     };
   }, [me, settings.lang, settings.voiceURI, clockHM, distM, etaMin, reverse]);
 
+  // ── handleTransitionSignal — реакция на смену фазы state machine.
+  // Хранится в ref, чтобы GPS-callback не зависел от state.
+  useEffect(() => {
+    transitionHandlerRef.current = (sig: TransitionSignal) => {
+      if (!sig) return;
+      switch (sig.type) {
+        case 'START_RIDING': {
+          // Голос «Поехали!» + вибрация
+          if (settings.haptics && navigator.vibrate) navigator.vibrate([40, 80, 40]);
+          if (!silenced) {
+            const phrase =
+              settings.lang === 'ru' ? 'Поехали!' :
+              settings.lang === 'de' ? 'Los geht\'s!' : 'Let\'s go!';
+            speak(phrase, settings.lang, settings.voiceURI);
+            lastVoiceRef.current = Date.now();
+          }
+          break;
+        }
+        case 'RESUME_RIDING': {
+          // Задержанное голосовое — через 3с озвучить текущую позицию
+          if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
+          if (!silenced) {
+            resumeVoiceTimerRef.current = window.setTimeout(() => {
+              lastVoiceRef.current = Date.now();
+              speakRef.current();
+            }, 3000);
+          }
+          break;
+        }
+        case 'ENTER_SHORT_STOP':
+          // Bearing уже заморожен через courseHeading useMemo
+          break;
+        case 'ENTER_LONG_STOP':
+          // Голос и таймер уже останавливаются через ridePhase guard
+          break;
+      }
+    };
+  }, [settings.haptics, settings.lang, settings.voiceURI, silenced]);
+
   useEffect(() => {
     if (silenced || paused || arrived || settings.intervalSec === 0 || !me) return;
+    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastVoiceRef.current === 0 && !pendingWakeSpeak) {
       lastVoiceRef.current = Date.now();
       speakRef.current();
@@ -548,12 +654,14 @@ export default function RideScreen({
       speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak]);
+  }, [silenced, paused, arrived, settings.intervalSec, me, pendingWakeSpeak, ridePhase]);
 
   // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
+  // Скрыт в PRE_RIDE / LONG_STOP — голос там молчит.
   const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
   useEffect(() => {
-    if (silenced || paused || arrived || settings.intervalSec === 0 || !me) {
+    if (silenced || paused || arrived || settings.intervalSec === 0 || !me
+        || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') {
       setNextVoiceSec(null);
       return;
     }
@@ -569,7 +677,7 @@ export default function RideScreen({
     update();
     const id = window.setInterval(update, 500);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, me]);
+  }, [silenced, paused, arrived, settings.intervalSec, me, ridePhase]);
 
   // ── Haptics + звуковой сигнал на смену часа.
   // При переходе на 12 — двойной восходящий beep «цель впереди» + усиленная вибра.
@@ -907,13 +1015,19 @@ export default function RideScreen({
           fontVariantNumeric: 'tabular-nums',
         }}
       >
-        {/* Левая часть: скорость · пройдено · время */}
+        {/* Левая часть: скорость · пройдено · время  ИЛИ  ⏳ ожидание */}
         <span>
-          {liveSpeed.v}&thinsp;{liveSpeed.u}
-          <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
-          {riddenFmt.v}&thinsp;{riddenFmt.u}
-          <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
-          {fmtTime(time)}
+          {ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? (
+            <>⏳ ожидание</>
+          ) : (
+            <>
+              {liveSpeed.v}&thinsp;{liveSpeed.u}
+              <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
+              {riddenFmt.v}&thinsp;{riddenFmt.u}
+              <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
+              {fmtTime(time)}
+            </>
+          )}
         </span>
 
         {/* Правая часть: таймер до голоса (только если активен) */}

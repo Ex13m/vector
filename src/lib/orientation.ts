@@ -1,7 +1,7 @@
 // Курс устройства (heading) — из компаса (DeviceOrientationEvent).
 // На iOS 13+ нужно вызывать requestPermission после явного жеста.
 
-import type { LatLng } from './geo';
+import { distanceM, type LatLng } from './geo';
 
 type HeadingHandler = (heading: number) => void;
 
@@ -42,6 +42,28 @@ export function startHeading(handler: HeadingHandler): () => void {
     window.removeEventListener('deviceorientationabsolute' as keyof WindowEventMap, onOrient as EventListener);
     window.removeEventListener('deviceorientation', onOrient as EventListener);
   };
+}
+
+/**
+ * Сглаженный bearing: от точки ~targetDistBack метров назад по треку
+ * до текущей позиции. Стабильнее чем по 2 последним точкам —
+ * не дёргается на каждом GPS-фиксе.
+ */
+export function smoothedBearingFromTrail(
+  trail: LatLng[],
+  targetDistBack = 40,
+): number | null {
+  if (trail.length < 2) return null;
+  const curr = trail[trail.length - 1];
+  let cumDist = 0;
+  for (let i = trail.length - 2; i >= 0; i--) {
+    cumDist += distanceM(trail[i], trail[i + 1]);
+    if (cumDist >= targetDistBack) {
+      return bearingFromTrail(trail[i], curr);
+    }
+  }
+  // Трек короче targetDistBack — используем первую точку
+  return bearingFromTrail(trail[0], curr);
 }
 
 // Курс по последним двум GPS-точкам — это то, что нужно реально
