@@ -83,6 +83,9 @@ export default function RideScreen({
   const [userPanned, setUserPanned] = useState(false);
   const [gpsLost, setGpsLost] = useState(true);
   const [showQuitModal, setShowQuitModal] = useState(false);
+  // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
+  // Нужен чтобы useEffect([me, target]) принудительно перезапустился после remount.
+  const [mapKey, setMapKey] = useState(0);
   const [pendingWakeSpeak, setPendingWakeSpeak] = useState(false);
   const [layerOpen, setLayerOpen] = useState(false);
 
@@ -169,6 +172,21 @@ export default function RideScreen({
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+    setMapKey((k) => k + 1); // сигнализируем маркер-эффекту о новой карте
+
+    // Маркер цели — добавляем СРАЗУ (до load), чтобы гарантированно был виден.
+    // Простой solid-круг, как в ArrivedOverlay — надёжнее DOM-трюков с 1×1.
+    const tgEl = document.createElement('div');
+    tgEl.style.cssText = [
+      'width:20px', 'height:20px', 'border-radius:50%',
+      `background:${C.target}`,
+      `border:3px solid #fff`,
+      `box-shadow:0 0 0 2px ${C.target},0 0 14px ${C.glow}`,
+      'pointer-events:none',
+    ].join(';');
+    targetMarkerRef.current = new maplibregl.Marker({ element: tgEl, anchor: 'center' })
+      .setLngLat([target.lng, target.lat])
+      .addTo(map);
 
     map.on('load', () => {
       // Трек (зелёный пунктир)
@@ -206,17 +224,23 @@ export default function RideScreen({
         },
       });
 
-      // Маркер цели — 1×1 anchor + дети с translate(-50%,-50%).
-      const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
-      tg.innerHTML = `
-        <div style="position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
-             style="position:absolute;left:50%;top:50%;margin:-12px 0 0 -12px;filter:drop-shadow(0 0 10px ${C.glow})">
-          <circle cx="12" cy="12" r="9"/>
-          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
-        </svg>`;
-      targetMarkerRef.current = new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
+      // Пульсирующее кольцо вокруг маркера цели (canvas-слой, добавляется при load).
+      map.addSource('target-pt', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
+      });
+      map.addLayer({
+        id: 'target-halo',
+        type: 'circle',
+        source: 'target-pt',
+        paint: {
+          'circle-radius': 22,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': C.target,
+          'circle-stroke-opacity': 0.6,
+        },
+      });
     });
 
     const onDragStart = () => {
@@ -230,6 +254,11 @@ export default function RideScreen({
       map.off('dragstart', onDragStart);
       map.remove();
       mapRef.current = null;
+      // Сбрасываем рефы маркеров — иначе StrictMode (двойной mount)
+      // оставляет старый ref живым и новый маркер не создаётся.
+      meMarkerRef.current = null;
+      meArrowRef.current = null;
+      targetMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -264,23 +293,59 @@ export default function RideScreen({
           paint: { 'line-color': C.target, 'line-width': 2.5, 'line-opacity': 0.7, 'line-dasharray': [3, 3] },
         });
       }
+      if (!map.getSource('target-pt')) {
+        map.addSource('target-pt', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
+        });
+        map.addLayer({
+          id: 'target-halo',
+          type: 'circle',
+          source: 'target-pt',
+          paint: {
+            'circle-radius': 22,
+            'circle-color': 'transparent',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': C.target,
+            'circle-stroke-opacity': 0.6,
+          },
+        });
+      }
     });
-  }, [settings.layer]);
+  }, [settings.layer, target]);
 
   // ── Маркер «вы» — ромб-стрелка, поворот по dual-mode (движение/компас).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me) return;
     if (!meMarkerRef.current) {
+      // 32×32 контейнер — MapLibre с anchor:'center' ставит центр контейнера
+      // точно на координаты. Никакого 1×1 overflow:visible — он обрезается.
       const el = document.createElement('div');
-      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
-      el.innerHTML = `
-        <div style="position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:rgba(72,222,148,0.20);box-shadow:0 0 0 6px rgba(72,222,148,0.10),0 0 14px rgba(72,222,148,0.45)"></div>
-        <svg width="26" height="26" viewBox="0 0 24 24"
-             style="position:absolute;left:50%;top:50%;margin:-13px 0 0 -13px;transform: rotate(0deg);transition: transform 200ms ease-out">
-          <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
-        </svg>`;
-      meArrowRef.current = el.querySelector('svg');
+      el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
+      // Glow-кольцо
+      const glow = document.createElement('div');
+      glow.style.cssText = [
+        'position:absolute', 'inset:0', 'border-radius:50%',
+        'background:rgba(72,222,148,0.15)',
+        'box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)',
+      ].join(';');
+      el.appendChild(glow);
+      // Стрелка SVG
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '26');
+      svg.setAttribute('height', '26');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out';
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', '12,2 18,20 12,16 6,20');
+      poly.setAttribute('fill', C.ok);
+      poly.setAttribute('stroke', C.bg);
+      poly.setAttribute('stroke-width', '1.5');
+      poly.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(poly);
+      el.appendChild(svg);
+      meArrowRef.current = svg as unknown as SVGElement;
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
       // Начальный кадр: вы + цель в кадре с запасом — иначе на 50 км цель уезжает.
       const d = distanceM(me, target);
@@ -294,7 +359,7 @@ export default function RideScreen({
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
-  }, [me, target]);
+  }, [me, target, mapKey]); // mapKey гарантирует перезапуск после remount карты
 
   // ── Trail redraw + vector line redraw.
   useEffect(() => {
@@ -326,14 +391,13 @@ export default function RideScreen({
     }
   }, [me, target]);
 
-  // ── Auto-recenter если пользователь не пэнил недавно.
+  // ── Auto-follow: карта следует за GPS если пользователь не пэнил.
+  // Таймер 5s сбрасывался каждый тик — карта никогда не центрировалась.
+  // Теперь просто easeTo на каждый GPS-апдейт пока userPanned=false.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me || userPanned) return;
-    const id = window.setTimeout(() => {
-      map.easeTo({ center: [me.lng, me.lat], duration: 700 });
-    }, 5_000);
-    return () => window.clearTimeout(id);
+    map.easeTo({ center: [me.lng, me.lat], duration: 800 });
   }, [me, userPanned]);
 
   // ── Sec timer (стопается на pause).
@@ -821,59 +885,69 @@ export default function RideScreen({
         ⚙
       </button>
 
-      {/* HUD bar (above toolbar) */}
+      {/* Info strip — всегда видна: скорость · пройдено · время | 🔊 таймер */}
       <div
         style={{
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: `calc(76px + env(safe-area-inset-bottom))`,
+          height: 28,
+          background: 'rgba(11,13,12,0.92)',
+          borderTop: `1px solid ${C.line}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 14px',
+          zIndex: 6,
+          fontFamily: F_MONO,
+          fontSize: 11,
+          letterSpacing: '0.07em',
+          color: C.inkDim,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {/* Левая часть: скорость · пройдено · время */}
+        <span>
+          {liveSpeed.v}&thinsp;{liveSpeed.u}
+          <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
+          {riddenFmt.v}&thinsp;{riddenFmt.u}
+          <span style={{ color: C.line2, margin: '0 5px' }}>·</span>
+          {fmtTime(time)}
+        </span>
+
+        {/* Правая часть: таймер до голоса (только если активен) */}
+        {nextVoiceSec !== null && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+              stroke={nextVoiceSec <= 5 ? C.target : C.inkDim} strokeWidth="2.5">
+              <path d="M3 10v4h4l5 5V5l-5 5H3z" /><path d="M16 8a5 5 0 010 8" />
+            </svg>
+            <span style={{ color: nextVoiceSec <= 5 ? C.target : C.inkDim, fontWeight: 600 }}>
+              {fmtCountdown(nextVoiceSec)}
+            </span>
+          </span>
+        )}
+      </div>
+
+      {/* HUD bar — над info strip */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: `calc(76px + 28px + env(safe-area-inset-bottom))`,
           background: 'rgba(11,13,12,0.92)',
           backdropFilter: 'blur(10px)',
           borderTop: `1px solid ${C.line}`,
           display: 'flex',
           zIndex: 6,
-          transition: 'background 300ms',
         }}
       >
         <HudCell label="TO TARGET" value={dist.v} unit={dist.u} />
         <HudCell label="AT O'CLOCK" value={clockHM} accent />
         <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
       </div>
-
-      {/* Countdown strip — между HUD и тулбаром */}
-      {nextVoiceSec !== null && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: `calc(76px + env(safe-area-inset-bottom))`,
-            height: 28,
-            background: 'rgba(11,13,12,0.88)',
-            borderTop: `1px solid ${C.line}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            zIndex: 6,
-          }}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={nextVoiceSec <= 5 ? C.target : C.inkDim} strokeWidth="2">
-            <path d="M3 10v4h4l5 5V5l-5 5H3z" /><path d="M16 8a5 5 0 010 8" />
-          </svg>
-          <span style={{
-            fontFamily: F_MONO,
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-            color: nextVoiceSec <= 5 ? C.target : C.inkDim,
-            fontVariantNumeric: 'tabular-nums',
-          }}>
-            {fmtCountdown(nextVoiceSec)}
-          </span>
-        </div>
-      )}
 
       {/* Toolbar 4 buttons */}
       <Toolbar
@@ -956,33 +1030,6 @@ export default function RideScreen({
         />
       )}
 
-      {/* Diag panel (hidden in production-ish): live speed for debug-feel.
-          Keeping minimal info in chrome — visible only when chromeVisible. */}
-      {chromeVisible && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(60px + env(safe-area-inset-top))',
-            right: 12,
-            display: 'flex',
-            gap: 8,
-            fontFamily: F_MONO,
-            fontSize: 10,
-            color: C.inkDim,
-            letterSpacing: '0.08em',
-            pointerEvents: 'none',
-            zIndex: 6,
-          }}
-        >
-          <span>
-            {liveSpeed.v} {liveSpeed.u}
-          </span>
-          <span>·</span>
-          <span>{riddenFmt.v} {riddenFmt.u}</span>
-          <span>·</span>
-          <span>{fmtTime(time)}</span>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import PickScreen from './screens/PickScreen';
 import CacheScreen from './screens/CacheScreen';
@@ -12,6 +12,10 @@ import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
+
+const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
+  ? lazy(() => import('./components/DevBar'))
+  : null;
 
 export type Settings = {
   intervalSec: number; // 0..900 step 60 (0–15 мин, шаг 1 мин)
@@ -203,6 +207,7 @@ export default function App() {
       )}
       {needRefresh && <UpdateToast onApply={() => updateServiceWorker(true)} />}
       <InstallPrompt />
+      {DevBar && <Suspense fallback={null}><DevBar /></Suspense>}
     </div>
   );
 }
