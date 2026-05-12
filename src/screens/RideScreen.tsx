@@ -24,13 +24,12 @@ import {
   relativeToClockHM,
   type LatLng,
 } from '../lib/geo';
-import { startHeading, bearingFromTrail, smoothedBearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
+import { startHeading, smoothedBearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
 import {
   type RidePhase,
   type TransitionSignal,
   createInitialState,
   tickMachine,
-  STOP_SPEED_MPS,
 } from '../lib/rideStateMachine';
 import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
