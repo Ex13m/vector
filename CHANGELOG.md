@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.7] — 2026-05-13
+
+### Добавлено
+
+- **SplashScreen** при холодном запуске — иконка проявляется (fade + scale), стрелка-вектор «выстреливает» из центра sweep-анимацией, кольца чертятся stroke-dashoffset'ом, появляется wordmark «VECTOR · VOICE CYCLING BEACON», затем экран плавно просветляется в PickScreen. Общая длительность ~2.3с.
+
 ## [0.5.6] — 2026-05-12
 
 ### Производительность
