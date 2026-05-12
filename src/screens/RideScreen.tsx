@@ -33,6 +33,7 @@ import {
 } from '../lib/rideStateMachine';
 import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
+import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
@@ -46,6 +47,8 @@ type Props = {
   targetName: string | null;
   reverse: boolean;
   resumeTrail: TrailPoint[] | null;
+  /** Восстановленная сессия (после убийства вкладки ОС) */
+  savedSession: RideSession | null;
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
   onExit: () => void;
@@ -63,6 +66,7 @@ export default function RideScreen({
   targetName,
   reverse,
   resumeTrail,
+  savedSession,
   onSettings,
   onSettingsChange,
   onExit,
@@ -76,10 +80,12 @@ export default function RideScreen({
   const targetMarkerRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
-  const [trail, setTrail] = useState<TrailPoint[]>(resumeTrail ? resumeTrail.slice() : []);
+  const [trail, setTrail] = useState<TrailPoint[]>(
+    savedSession?.trail ?? (resumeTrail ? resumeTrail.slice() : []),
+  );
   const [heading, setHeading] = useState(0);
-  const [time, setTime] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [time, setTime] = useState(savedSession?.elapsedSec ?? 0);
+  const [paused, setPaused] = useState(savedSession?.paused ?? false);
   const [silenced, setSilenced] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [arrived, setArrived] = useState(false);
@@ -96,15 +102,15 @@ export default function RideScreen({
   const [layerOpen, setLayerOpen] = useState(false);
 
   // ── Ride state machine (PRE_RIDE / RIDING / SHORT_STOP / LONG_STOP)
-  const [ridePhase, setRidePhase] = useState<RidePhase>('PRE_RIDE');
-  const machineRef = useRef(createInitialState(null));
+  const [ridePhase, setRidePhase] = useState<RidePhase>(savedSession?.ridePhase ?? 'PRE_RIDE');
+  const machineRef = useRef(savedSession?.machineState ?? createInitialState(null));
   const lastRidingBearingRef = useRef(0);
   const resumeVoiceTimerRef = useRef<number | null>(null);
   // Ref-обёртка для handleTransitionSignal чтобы GPS-callback не зависел от state
   const transitionHandlerRef = useRef<(sig: TransitionSignal) => void>(() => {});
 
-  const startedAtRef = useRef<number>(Date.now());
-  const speedMaxRef = useRef(0);
+  const startedAtRef = useRef<number>(savedSession?.startedAt ?? Date.now());
+  const speedMaxRef = useRef(savedSession?.speedMaxMps ?? 0);
   const lastVoiceRef = useRef(0);
   const lastGpsAtRef = useRef(0);
   const userPanTimer = useRef<number | null>(null);
@@ -238,6 +244,28 @@ export default function RideScreen({
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  // ── Auto-save сессии: сохраняем в localStorage каждые 3 секунды.
+  // Если ОС убьёт вкладку — при перезагрузке App восстановит поездку.
+  useEffect(() => {
+    if (arrived) return; // не перезаписываем после финиша
+    const id = window.setInterval(() => {
+      saveRideSession({
+        target,
+        targetName,
+        reverse,
+        trail,
+        elapsedSec: time,
+        machineState: machineRef.current,
+        ridePhase,
+        speedMaxMps: speedMaxRef.current,
+        startedAt: startedAtRef.current,
+        paused,
+        savedAt: Date.now(),
+      });
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [target, targetName, reverse, trail, time, ridePhase, paused, arrived]);
 
   // ── iOS heading permission.
   useEffect(() => {
@@ -588,6 +616,7 @@ export default function RideScreen({
 
   const triggerArrived = useCallback(() => {
     setArrived(true);
+    clearRideSession(); // поездка завершена — сессия больше не нужна
     if (settings.haptics && navigator.vibrate) navigator.vibrate([30, 60, 30, 60, 90]);
     if (!silenced) {
       // Голос «Вы у цели»

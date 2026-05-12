@@ -12,6 +12,7 @@ import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
+import { loadRideSession, clearRideSession } from './lib/rideSession';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
   ? lazy(() => import('./components/DevBar'))
@@ -73,12 +74,15 @@ export default function App() {
   // Создаём <audio> сразу при старте — play() будет вызван из жеста «Старт».
   useEffect(() => { initWakeAudio(); }, []);
 
-  const [screen, setScreen] = useState<Screen>('pick');
+  // ── Восстановление активной поездки после убийства вкладки ОС.
+  const savedSession = useMemo(() => loadRideSession(), []);
+
+  const [screen, setScreen] = useState<Screen>(savedSession ? 'ride' : 'pick');
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
-  const [target, setTarget] = useState<LatLng | null>(null);
-  const [targetName, setTargetName] = useState<string | null>(null);
-  const [reverse, setReverse] = useState(false);
-  const [resumeTrail, setResumeTrail] = useState<Array<{ lat: number; lng: number; t: number }> | null>(null);
+  const [target, setTarget] = useState<LatLng | null>(savedSession?.target ?? null);
+  const [targetName, setTargetName] = useState<string | null>(savedSession?.targetName ?? null);
+  const [reverse, setReverse] = useState(savedSession?.reverse ?? false);
+  const [resumeTrail, setResumeTrail] = useState<Array<{ lat: number; lng: number; t: number }> | null>(savedSession?.trail ?? null);
   const [pickBox, setPickBox] = useState<LngLatBox | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   // При выходе на Pick из Журнала — попросить открыть sheet на табе trips.
@@ -117,6 +121,7 @@ export default function App() {
 
   const goRide = useCallback(() => setScreen('ride'), []);
   const goPick = useCallback(() => {
+    clearRideSession();
     setScreen('pick');
     setTarget(null);
     setTargetName(null);
@@ -124,6 +129,7 @@ export default function App() {
     setReverse(false);
   }, []);
   const goPickJournal = useCallback(() => {
+    clearRideSession();
     setOpenJournal(true);
     setScreen('pick');
     setTarget(null);
@@ -178,6 +184,7 @@ export default function App() {
           targetName={targetName}
           reverse={reverse}
           resumeTrail={resumeTrail}
+          savedSession={savedSession}
           onSettings={() => setShowSettings(true)}
           onSettingsChange={updateSettings}
           onExit={goPick}
