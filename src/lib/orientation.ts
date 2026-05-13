@@ -33,40 +33,59 @@ export async function requestIosPermission(): Promise<boolean> {
  */
 export function startHeading(handler: HeadingHandler): () => void {
   const MIN_DELTA_DEG = 2;
-  const MIN_INTERVAL_MS = 100; // ~10 Hz
-  // NaN как sentinel: Math.min(NaN, NaN) = NaN, NaN < 2 = false →
-  // первое событие всегда проходит фильтр (иначе с -999 дельта уходит
-  // в отрицательные числа и все события отфильтровываются навсегда).
-  let lastEmitted = NaN;
+  const MIN_INTERVAL_MS = 100; // emit ≤10 Hz
+  const SMOOTHING = 0.25;      // low-pass: 0 = no change, 1 = no smoothing
+
+  let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
+  let smoothed = NaN;          // low-pass filter state (circular)
+  let hasAbsolute = false;     // true once absolute/webkit event fires
 
   const onOrient = (e: DeviceOrientationEvent) => {
     const anyE = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
     let heading: number | null = null;
+
     if (typeof anyE.webkitCompassHeading === 'number') {
-      // iOS Safari: компасный heading напрямую.
+      // iOS Safari: истинный компасный heading.
       heading = anyE.webkitCompassHeading;
-    } else if (e.alpha !== null) {
-      // Android Chrome: deviceorientationabsolute даёт absolute=true и
-      // истинный северный heading; обычный deviceorientation — относительный,
-      // но тоже используем как лучшее из доступного.
+      hasAbsolute = true;
+    } else if (e.absolute && e.alpha !== null) {
+      // Android deviceorientationabsolute: истинный северный heading.
+      heading = (360 - (e.alpha as number)) % 360;
+      hasAbsolute = true;
+    } else if (!hasAbsolute && e.alpha !== null) {
+      // Fallback: обычный deviceorientation (относительный), только если
+      // абсолютных событий не было. Хуже чем компас, но лучше чем ничего.
       heading = (360 - (e.alpha as number)) % 360;
     }
     if (heading === null || Number.isNaN(heading)) return;
 
+    // ── Low-pass filter (circular): убирает шум магнитометра.
+    // Обрабатывает ВСЕ события (~60 Hz), emit гейтится ниже.
+    if (Number.isNaN(smoothed)) {
+      smoothed = heading;
+    } else {
+      let diff = heading - smoothed;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      smoothed = ((smoothed + diff * SMOOTHING) % 360 + 360) % 360;
+    }
+
+    // ── Emit gate: ≤10 Hz + ≥2° дельта от прошлого emit.
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
-    // Угловая дистанция с учётом 360→0 wrap.
-    // NaN-safe: если lastEmitted = NaN, delta = NaN, NaN < 2 = false → проходит.
-    const delta = Math.min(
-      Math.abs(heading - lastEmitted),
-      360 - Math.abs(heading - lastEmitted),
-    );
+    const delta = Number.isNaN(lastEmitted)
+      ? 360
+      : Math.min(
+          Math.abs(smoothed - lastEmitted),
+          360 - Math.abs(smoothed - lastEmitted),
+        );
     if (delta < MIN_DELTA_DEG) return;
-    lastEmitted = heading;
+    lastEmitted = smoothed;
     lastEmitAt = now;
-    handler(heading);
+    handler(smoothed);
   };
+
   window.addEventListener('deviceorientationabsolute' as keyof WindowEventMap, onOrient as EventListener);
   window.addEventListener('deviceorientation', onOrient as EventListener);
   return () => {
