@@ -17,8 +17,116 @@
       rel="stylesheet"
     />
     <title>Vector</title>
+    <style>
+      /* Splash в index.html — виден с первого пэйнта.
+         Иконка стартует уже на своём месте (никакого мигания между
+         статичной favicon и анимированным React-сплэшем). */
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: #0a0c0b;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        transition: opacity 600ms cubic-bezier(0.22, 1, 0.36, 1);
+        font-family: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+      }
+      #splash.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash .glow {
+        position: absolute;
+        width: 280px;
+        height: 280px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 107, 26, 0.35) 0%, transparent 60%);
+        filter: blur(20px);
+        opacity: 0;
+        animation: splashGlow 1400ms 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      #splash .icon {
+        width: 140px;
+        height: 140px;
+        position: relative;
+        animation: splashCorePulse 2400ms 600ms ease-in-out infinite;
+      }
+      #splash .wordmark {
+        margin-top: 28px;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.32em;
+        color: #f2f0ea;
+        opacity: 0;
+        animation: splashTextIn 800ms 500ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      #splash .tagline {
+        margin-top: 10px;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.4em;
+        color: #7a7e78;
+        opacity: 0;
+        animation: splashTextIn 800ms 750ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      @keyframes splashGlow {
+        0%   { opacity: 0; transform: scale(0.6); }
+        70%  { opacity: 1; transform: scale(1.1); }
+        100% { opacity: 0.7; transform: scale(1); }
+      }
+      @keyframes splashTextIn {
+        0%   { opacity: 0; transform: translateY(6px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes splashCorePulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.03); }
+      }
+    </style>
   </head>
   <body>
+    <!-- Splash — пока загружается JS и грузится React, и сразу после.
+         Удаляется из DOM скриптом после fade-out. -->
+    <div id="splash">
+      <div class="glow"></div>
+      <div class="icon">
+        <svg viewBox="0 0 512 512" width="100%" height="100%">
+          <rect width="512" height="512" rx="96" fill="#0A0C0B" />
+          <circle cx="256" cy="256" r="156" fill="none" stroke="#1F2422" stroke-width="2" />
+          <circle cx="256" cy="256" r="118" fill="none" stroke="#2A302D" stroke-width="1.5" />
+          <g stroke="#FF6B1A" stroke-width="6" stroke-linecap="round">
+            <line x1="256" y1="80" x2="256" y2="130" />
+            <line x1="256" y1="382" x2="256" y2="432" />
+            <line x1="80" y1="256" x2="130" y2="256" />
+            <line x1="382" y1="256" x2="432" y2="256" />
+          </g>
+          <circle cx="256" cy="256" r="18" fill="none" stroke="#FF6B1A" stroke-width="6" />
+          <circle cx="256" cy="256" r="6" fill="#FF6B1A" />
+          <line x1="256" y1="256" x2="350" y2="190" stroke="#FF6B1A" stroke-width="8" stroke-linecap="round" />
+          <polygon points="350,190 332,200 340,178" fill="#FF6B1A" />
+        </svg>
+      </div>
+      <div class="wordmark">VECTOR</div>
+      <div class="tagline">VOICE CYCLING BEACON</div>
+    </div>
+    <script>
+      // Снимаем splash после показа.
+      (function () {
+        var DURATION = 1700; // визуальная демонстрация
+        var FADE = 600;       // длина fade-out
+        setTimeout(function () {
+          var el = document.getElementById('splash');
+          if (el) el.classList.add('fade-out');
+        }, DURATION);
+        setTimeout(function () {
+          var el = document.getElementById('splash');
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }, DURATION + FADE);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

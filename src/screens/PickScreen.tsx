@@ -132,11 +132,11 @@ export default function PickScreen({
     if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
+      el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
       el.innerHTML = `
-        <div style="position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
-        <svg width="28" height="28" viewBox="0 0 24 24"
-             style="position:absolute;left:50%;top:50%;margin:-14px 0 0 -14px;transform: rotate(0deg);transition: transform 200ms ease-out">
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.15);box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)"></div>
+        <svg width="26" height="26" viewBox="0 0 24 24"
+             style="position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meArrowRef.current = el.querySelector('svg');

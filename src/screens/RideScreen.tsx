@@ -100,6 +100,10 @@ export default function RideScreen({
   const [mapKey, setMapKey] = useState(0);
   const [pendingWakeSpeak, setPendingWakeSpeak] = useState(false);
   const [layerOpen, setLayerOpen] = useState(false);
+  // compassFired: true с первого события компаса.
+  // Пока false — стрелка показывает абсолютный bearing к цели (видна сразу),
+  // после — переключается на компасный режим «наведения».
+  const [compassFired, setCompassFired] = useState(false);
 
   // ── Ride state machine (PRE_RIDE / RIDING / SHORT_STOP / LONG_STOP)
   const [ridePhase, setRidePhase] = useState<RidePhase>(savedSession?.ridePhase ?? 'PRE_RIDE');
@@ -307,11 +311,16 @@ export default function RideScreen({
   }, []);
 
   // ── iOS heading permission.
+  // Один callback-объект: setCompassFired — стабильная setState-функция, можно
+  // использовать в closure без включения в deps-массив.
   useEffect(() => {
     if (needsIosPermission()) {
       setNeedPerm(true);
     } else {
-      const stop = startHeading(setHeading);
+      const stop = startHeading((h) => {
+        setCompassFired(true);
+        setHeading(h);
+      });
       return stop;
     }
   }, []);
@@ -319,7 +328,10 @@ export default function RideScreen({
   async function grantHeading() {
     const ok = await requestIosPermission();
     setNeedPerm(false);
-    if (ok) startHeading(setHeading);
+    if (ok) startHeading((h) => {
+      setCompassFired(true);
+      setHeading(h);
+    });
   }
 
   // ── Карта.
@@ -599,7 +611,8 @@ export default function RideScreen({
   // ── 4-phase heading.
   // RIDING: сглаженный вектор ~40м назад по треку
   // SHORT_STOP: замороженный последний вектор езды
-  // PRE_RIDE / LONG_STOP: компас (heading от магнитометра)
+  // PRE_RIDE / LONG_STOP: компас, если компас сработал хоть раз;
+  //   иначе — абсолютный bearing к цели (стрелка всегда видна и значима).
   const courseHeading = useMemo(() => {
     switch (ridePhase) {
       case 'RIDING': {
@@ -612,9 +625,11 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        return heading;
+        // Компас доступен → стрелка = ориентация телефона (режим наведения).
+        // Компаса нет → стрелка = направление к цели (informative fallback).
+        return compassFired ? heading : (me ? bearingTo(me, target) : 0);
     }
-  }, [ridePhase, trail, heading]);
+  }, [ridePhase, trail, heading, compassFired, me, target]);
 
   const bearing = me ? bearingTo(me, target) : 0;
   const rel = ((bearing - courseHeading) % 360 + 360) % 360;
@@ -1150,10 +1165,18 @@ export default function RideScreen({
           fontVariantNumeric: 'tabular-nums',
         }}
       >
-        {/* Левая часть: скорость · пройдено · время  ИЛИ  ⏳ ожидание */}
+        {/* Левая часть: скорость · пройдено · время  ИЛИ  статус ожидания */}
         <span>
           {ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? (
-            <>⏳ ожидание</>
+            <>
+              {ridePhase === 'LONG_STOP'
+                ? '⏸ долгая остановка'
+                : me
+                ? compassFired
+                  ? '🧭 наведите телефон на цель'
+                  : '🧭 наведение на цель'
+                : '⏳ ожидание GPS'}
+            </>
           ) : (
             <>
               {liveSpeed.v}&thinsp;{liveSpeed.u}
@@ -1193,9 +1216,21 @@ export default function RideScreen({
           zIndex: 6,
         }}
       >
-        <HudCell label="TO TARGET" value={dist.v} unit={dist.u} />
-        <HudCell label="AT O'CLOCK" value={clockHM} accent />
-        <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
+        {ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? (
+          <TargetingHud
+            dist={dist}
+            clockHM={clockHM}
+            rel={rel}
+            mePresent={!!me}
+            compassMode={compassFired}
+          />
+        ) : (
+          <>
+            <HudCell label="TO TARGET" value={dist.v} unit={dist.u} />
+            <HudCell label="AT O'CLOCK" value={clockHM} accent />
+            <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
+          </>
+        )}
       </div>
 
       {/* Toolbar 4 buttons */}
@@ -1284,6 +1319,157 @@ export default function RideScreen({
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * TargetingHud — показывается в PRE_RIDE и LONG_STOP вместо обычного HUD.
+ *
+ * Два режима:
+ *  compassMode = true  →  стрелка = ориентация телефона.
+ *                          HUD показывает часовую позицию цели + подсказку поворота.
+ *                          Когда rel < 22° — «↑ ПРЯМО» зелёным.
+ *  compassMode = false →  стрелка уже указывает на цель (fallback).
+ *                          HUD показывает дистанцию + часы + «↑ ПРЯМО» всегда.
+ */
+function TargetingHud({
+  dist,
+  clockHM,
+  rel,
+  mePresent,
+  compassMode,
+}: {
+  dist: { v: string; u: string };
+  clockHM: string;
+  rel: number;
+  mePresent: boolean;
+  compassMode: boolean;
+}) {
+  const aligned = rel < 22 || rel > 338;
+  const turnRight = !aligned && rel <= 180;
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '8px 16px',
+        gap: 12,
+        minHeight: 58,
+      }}
+    >
+      {/* Левая секция: дистанция */}
+      <div style={{ minWidth: 64 }}>
+        <div
+          style={{
+            fontFamily: F_MONO,
+            fontSize: 9,
+            letterSpacing: '0.18em',
+            color: C.inkDim,
+            textTransform: 'uppercase',
+            marginBottom: 3,
+          }}
+        >
+          до цели
+        </div>
+        <div
+          style={{
+            fontFamily: F_MONO,
+            fontSize: 20,
+            fontWeight: 700,
+            color: C.ink,
+            letterSpacing: '-0.02em',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {mePresent ? dist.v : '—'}
+          {mePresent && (
+            <span style={{ fontSize: 11, color: C.inkDim, fontWeight: 500, marginLeft: 2 }}>
+              {dist.u}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Разделитель */}
+      <div style={{ width: 1, alignSelf: 'stretch', background: C.line }} />
+
+      {/* Правая секция: курс / наведение */}
+      <div style={{ flex: 1 }}>
+        <div
+          style={{
+            fontFamily: F_MONO,
+            fontSize: 9,
+            letterSpacing: '0.18em',
+            color: C.inkDim,
+            textTransform: 'uppercase',
+            marginBottom: 3,
+          }}
+        >
+          {compassMode ? 'наведение' : 'направление'}
+        </div>
+
+        {!mePresent ? (
+          <div style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim, letterSpacing: '0.04em' }}>
+            жду GPS…
+          </div>
+        ) : !compassMode ? (
+          /* Нет компаса: стрелка уже на цели, показываем «ПРЯМО» */
+          <div
+            style={{
+              fontFamily: F_MONO,
+              fontSize: 20,
+              fontWeight: 700,
+              color: C.ok,
+              letterSpacing: '-0.01em',
+            }}
+          >
+            ↑ прямо
+          </div>
+        ) : aligned ? (
+          /* Компас + выровнено: зелёное подтверждение */
+          <div
+            style={{
+              fontFamily: F_MONO,
+              fontSize: 20,
+              fontWeight: 700,
+              color: C.ok,
+              letterSpacing: '-0.01em',
+              animation: 'liveBlink 1.6s ease-in-out infinite',
+            }}
+          >
+            ↑ прямо!
+          </div>
+        ) : (
+          /* Компас + не выровнено: показываем часы и куда повернуть */
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div
+              style={{
+                fontFamily: F_MONO,
+                fontSize: 20,
+                fontWeight: 700,
+                color: C.target,
+                letterSpacing: '-0.01em',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {clockHM}
+            </div>
+            <div
+              style={{
+                fontFamily: F_MONO,
+                fontSize: 11,
+                color: C.inkDim,
+                letterSpacing: '0.04em',
+              }}
+            >
+              {turnRight ? '→ вправо' : '← влево'}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function HudCell({ label, value, unit, accent }: { label: string; value: string; unit?: string; accent?: boolean }) {
   return (

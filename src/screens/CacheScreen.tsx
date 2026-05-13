@@ -16,7 +16,7 @@ import {
   type TilePoint,
 } from '../lib/tiles';
 import { tileUrl } from '../lib/mapStyles';
-import { distanceM, fmtDist, type LatLng } from '../lib/geo';
+import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import { haptic } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -81,11 +81,11 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       addVectorSource(map);
       // Маркер цели — каждый слой явно центрован через translate(-50%,-50%).
       const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
+      tg.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
       tg.innerHTML = `
-        <div style="position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
+        <div style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
-             style="position:absolute;left:50%;top:50%;margin:-12px 0 0 -12px;filter:drop-shadow(0 0 8px ${C.glow})">
+             style="position:absolute;left:4px;top:4px;filter:drop-shadow(0 0 8px ${C.glow})">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="3" fill="${C.target}"/>
         </svg>`;
@@ -180,19 +180,19 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     if (!map || !me) return;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      const deg = bearingPx(me, target);
-      el.style.cssText = 'position:relative;width:1px;height:1px;pointer-events:none;overflow:visible';
+      const deg = bearingTo(me, target);
+      el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
       el.innerHTML = `
-        <div style="position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:rgba(72,222,148,0.18)"></div>
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.15);box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)"></div>
         <svg width="26" height="26" viewBox="0 0 24 24"
-             style="position:absolute;left:50%;top:50%;margin:-13px 0 0 -13px;transform: rotate(${deg}deg)">
+             style="position:absolute;left:3px;top:3px;transform:rotate(${deg}deg)">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
       const svg = meMarkerRef.current.getElement().querySelector('svg');
-      if (svg) (svg as unknown as HTMLElement).style.transform = `rotate(${bearingPx(me, target)}deg)`;
+      if (svg) (svg as unknown as HTMLElement).style.transform = `rotate(${bearingTo(me, target)}deg)`;
     }
   }, [me, target]);
 
@@ -523,12 +523,6 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   );
 }
 
-function bearingPx(a: LatLng, b: LatLng): number {
-  // Простой bearing (для маркера); полноценная формула не нужна на этом экране.
-  const dx = b.lng - a.lng;
-  const dy = b.lat - a.lat;
-  return (Math.atan2(dx, dy) * 180) / Math.PI;
-}
 
 function addVectorSource(map: MlMap): void {
   if (!map.getSource('vector')) {

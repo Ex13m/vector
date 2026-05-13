@@ -6,7 +6,6 @@ import RideScreen from './screens/RideScreen';
 import SettingsSheet from './components/SettingsSheet';
 import UpdateToast from './components/UpdateToast';
 import InstallPrompt from './components/InstallPrompt';
-import SplashScreen from './components/SplashScreen';
 import type { LatLng } from './lib/geo';
 import type { Layer } from './lib/mapStyles';
 import type { LngLatBox } from './lib/tiles';
@@ -88,8 +87,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   // При выходе на Pick из Журнала — попросить открыть sheet на табе trips.
   const [openJournal, setOpenJournal] = useState(false);
-  // Splash при холодном запуске
-  const [splashDone, setSplashDone] = useState(false);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => {
@@ -212,7 +209,6 @@ export default function App() {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {body}
-      {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
       {showSettings && (
         <SettingsSheet settings={settings} onChange={updateSettings} onClose={() => setShowSettings(false)} />
       )}
