@@ -34,15 +34,22 @@ export async function requestIosPermission(): Promise<boolean> {
 export function startHeading(handler: HeadingHandler): () => void {
   const MIN_DELTA_DEG = 2;
   const MIN_INTERVAL_MS = 100; // ~10 Hz
-  let lastEmitted = -999;
+  // NaN как sentinel: Math.min(NaN, NaN) = NaN, NaN < 2 = false →
+  // первое событие всегда проходит фильтр (иначе с -999 дельта уходит
+  // в отрицательные числа и все события отфильтровываются навсегда).
+  let lastEmitted = NaN;
   let lastEmitAt = 0;
 
   const onOrient = (e: DeviceOrientationEvent) => {
     const anyE = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
     let heading: number | null = null;
     if (typeof anyE.webkitCompassHeading === 'number') {
+      // iOS Safari: компасный heading напрямую.
       heading = anyE.webkitCompassHeading;
-    } else if (e.absolute && e.alpha !== null) {
+    } else if (e.alpha !== null) {
+      // Android Chrome: deviceorientationabsolute даёт absolute=true и
+      // истинный северный heading; обычный deviceorientation — относительный,
+      // но тоже используем как лучшее из доступного.
       heading = (360 - (e.alpha as number)) % 360;
     }
     if (heading === null || Number.isNaN(heading)) return;
@@ -50,6 +57,7 @@ export function startHeading(handler: HeadingHandler): () => void {
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
     // Угловая дистанция с учётом 360→0 wrap.
+    // NaN-safe: если lastEmitted = NaN, delta = NaN, NaN < 2 = false → проходит.
     const delta = Math.min(
       Math.abs(heading - lastEmitted),
       360 - Math.abs(heading - lastEmitted),
