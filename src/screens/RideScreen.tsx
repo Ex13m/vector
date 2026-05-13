@@ -611,8 +611,8 @@ export default function RideScreen({
   // ── 4-phase heading.
   // RIDING: сглаженный вектор ~40м назад по треку
   // SHORT_STOP: замороженный последний вектор езды
-  // PRE_RIDE / LONG_STOP: компас, если компас сработал хоть раз;
-  //   иначе — абсолютный bearing к цели (стрелка всегда видна и значима).
+  // PRE_RIDE / LONG_STOP: компас. Стрелка = ориентация телефона.
+  //   Пользователь вращает телефон → стрелка совпадает с вектором → голос.
   const courseHeading = useMemo(() => {
     switch (ridePhase) {
       case 'RIDING': {
@@ -625,11 +625,9 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        // Компас доступен → стрелка = ориентация телефона (режим наведения).
-        // Компаса нет → стрелка = направление к цели (informative fallback).
-        return compassFired ? heading : (me ? bearingTo(me, target) : 0);
+        return heading; // всегда компас — стрелка вращается с телефоном
     }
-  }, [ridePhase, trail, heading, compassFired, me, target]);
+  }, [ridePhase, trail, heading]);
 
   const bearing = me ? bearingTo(me, target) : 0;
   const rel = ((bearing - courseHeading) % 360 + 360) % 360;
@@ -829,8 +827,8 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, paused, arrived, settings.intervalSec, hasFix, ridePhase]);
 
-  // ── Haptics + звуковой сигнал на смену часа.
-  // При переходе на 12 — двойной восходящий beep «цель впереди» + усиленная вибра.
+  // ── Haptics + звуковой сигнал на смену часа (только в RIDING).
+  // При переходе на 12 — chime «цель впереди» + усиленная вибра.
   useEffect(() => {
     if (lastClockRef.current !== null && lastClockRef.current !== clockNum) {
       if (clockNum === 12) {
@@ -842,6 +840,29 @@ export default function RideScreen({
     }
     lastClockRef.current = clockNum;
   }, [clockNum, settings.haptics, silenced]);
+
+  // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
+  // Срабатывает один раз при совпадении стрелки с вектором (rel < 22°),
+  // сбрасывается при выходе из зоны. Требует реального компаса (compassFired).
+  const wasAlignedRef = useRef(false);
+  useEffect(() => {
+    if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
+      wasAlignedRef.current = false;
+      return;
+    }
+    if (!me || silenced || !compassFired) return;
+    const aligned = rel < 22 || rel > 338;
+    if (aligned && !wasAlignedRef.current) {
+      wasAlignedRef.current = true;
+      haptic('success', settings.haptics);
+      const phrase =
+        settings.lang === 'ru' ? 'Цель впереди' :
+        settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
+      speak(phrase, settings.lang, settings.voiceURI);
+    } else if (!aligned) {
+      wasAlignedRef.current = false;
+    }
+  }, [rel, ridePhase, me, silenced, compassFired, settings.lang, settings.voiceURI, settings.haptics]);
 
   // ── visibilitychange: при пробуждении — отменить накопившуюся речь и
   // дождаться свежего GPS перед следующей фразой.
@@ -1172,9 +1193,7 @@ export default function RideScreen({
               {ridePhase === 'LONG_STOP'
                 ? '⏸ долгая остановка'
                 : me
-                ? compassFired
-                  ? '🧭 наведите телефон на цель'
-                  : '🧭 наведение на цель'
+                ? '🧭 наведите телефон на цель'
                 : '⏳ ожидание GPS'}
             </>
           ) : (
@@ -1222,7 +1241,6 @@ export default function RideScreen({
             clockHM={clockHM}
             rel={rel}
             mePresent={!!me}
-            compassMode={compassFired}
           />
         ) : (
           <>
@@ -1323,25 +1341,20 @@ export default function RideScreen({
 /**
  * TargetingHud — показывается в PRE_RIDE и LONG_STOP вместо обычного HUD.
  *
- * Два режима:
- *  compassMode = true  →  стрелка = ориентация телефона.
- *                          HUD показывает часовую позицию цели + подсказку поворота.
- *                          Когда rel < 22° — «↑ ПРЯМО» зелёным.
- *  compassMode = false →  стрелка уже указывает на цель (fallback).
- *                          HUD показывает дистанцию + часы + «↑ ПРЯМО» всегда.
+ * Стрелка «вы» всегда = компас (ориентация телефона).
+ * Пользователь вращает телефон пока стрелка не совпадёт с вектором к цели →
+ * HUD показывает «↑ прямо!» + голос «Цель впереди» (из родителя).
  */
 function TargetingHud({
   dist,
   clockHM,
   rel,
   mePresent,
-  compassMode,
 }: {
   dist: { v: string; u: string };
   clockHM: string;
   rel: number;
   mePresent: boolean;
-  compassMode: boolean;
 }) {
   const aligned = rel < 22 || rel > 338;
   const turnRight = !aligned && rel <= 180;
@@ -1393,7 +1406,7 @@ function TargetingHud({
       {/* Разделитель */}
       <div style={{ width: 1, alignSelf: 'stretch', background: C.line }} />
 
-      {/* Правая секция: курс / наведение */}
+      {/* Правая секция: наведение */}
       <div style={{ flex: 1 }}>
         <div
           style={{
@@ -1405,28 +1418,15 @@ function TargetingHud({
             marginBottom: 3,
           }}
         >
-          {compassMode ? 'наведение' : 'направление'}
+          наведение
         </div>
 
         {!mePresent ? (
           <div style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim, letterSpacing: '0.04em' }}>
             жду GPS…
           </div>
-        ) : !compassMode ? (
-          /* Нет компаса: стрелка уже на цели, показываем «ПРЯМО» */
-          <div
-            style={{
-              fontFamily: F_MONO,
-              fontSize: 20,
-              fontWeight: 700,
-              color: C.ok,
-              letterSpacing: '-0.01em',
-            }}
-          >
-            ↑ прямо
-          </div>
         ) : aligned ? (
-          /* Компас + выровнено: зелёное подтверждение */
+          /* Стрелка совпала с вектором → голос уже сказан родителем */
           <div
             style={{
               fontFamily: F_MONO,
@@ -1440,7 +1440,7 @@ function TargetingHud({
             ↑ прямо!
           </div>
         ) : (
-          /* Компас + не выровнено: показываем часы и куда повернуть */
+          /* Подсказка куда повернуть */
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <div
               style={{
