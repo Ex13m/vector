@@ -41,7 +41,10 @@ export function startHeading(handler: HeadingHandler): () => void {
   let smoothed = NaN;          // low-pass filter state (circular)
   let hasAbsolute = false;     // true once absolute/webkit event fires
 
-  const onOrient = (e: DeviceOrientationEvent) => {
+  // Общая обработка: isAbsoluteEvent = true для deviceorientationabsolute
+  // (абсолютен по определению, НЕ полагаемся на e.absolute флаг — он
+  // бывает false на ряде Android-устройств/Chrome-версий).
+  const process = (e: DeviceOrientationEvent, isAbsoluteEvent: boolean) => {
     const anyE = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
     let heading: number | null = null;
 
@@ -49,11 +52,12 @@ export function startHeading(handler: HeadingHandler): () => void {
       // iOS Safari: истинный компасный heading.
       heading = anyE.webkitCompassHeading;
       hasAbsolute = true;
-    } else if (e.absolute && e.alpha !== null) {
-      // Android deviceorientationabsolute: истинный северный heading.
+    } else if (isAbsoluteEvent && e.alpha !== null) {
+      // deviceorientationabsolute — абсолютен по имени события,
+      // не проверяем e.absolute (он ненадёжен).
       heading = (360 - (e.alpha as number)) % 360;
       hasAbsolute = true;
-    } else if (!hasAbsolute && e.alpha !== null) {
+    } else if (!hasAbsolute && !isAbsoluteEvent && e.alpha !== null) {
       // Fallback: обычный deviceorientation (относительный), только если
       // абсолютных событий не было. Хуже чем компас, но лучше чем ничего.
       heading = (360 - (e.alpha as number)) % 360;
@@ -86,11 +90,15 @@ export function startHeading(handler: HeadingHandler): () => void {
     handler(smoothed);
   };
 
-  window.addEventListener('deviceorientationabsolute' as keyof WindowEventMap, onOrient as EventListener);
-  window.addEventListener('deviceorientation', onOrient as EventListener);
+  // Два раздельных обработчика: различаем тип события.
+  const onAbsolute = (e: Event) => process(e as DeviceOrientationEvent, true);
+  const onRelative = (e: Event) => process(e as DeviceOrientationEvent, false);
+
+  window.addEventListener('deviceorientationabsolute', onAbsolute);
+  window.addEventListener('deviceorientation', onRelative);
   return () => {
-    window.removeEventListener('deviceorientationabsolute' as keyof WindowEventMap, onOrient as EventListener);
-    window.removeEventListener('deviceorientation', onOrient as EventListener);
+    window.removeEventListener('deviceorientationabsolute', onAbsolute);
+    window.removeEventListener('deviceorientation', onRelative);
   };
 }
 
