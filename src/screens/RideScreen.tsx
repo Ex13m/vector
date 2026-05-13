@@ -616,7 +616,7 @@ export default function RideScreen({
   const courseHeading = useMemo(() => {
     switch (ridePhase) {
       case 'RIDING': {
-        const smoothed = smoothedBearingFromTrail(trail, 40);
+        const smoothed = smoothedBearingFromTrail(trail, 15);
         if (smoothed !== null) lastRidingBearingRef.current = smoothed;
         return smoothed ?? heading;
       }
@@ -827,19 +827,31 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, paused, arrived, settings.intervalSec, hasFix, ridePhase]);
 
-  // ── Haptics + звуковой сигнал на смену часа (только в RIDING).
-  // При переходе на 12 — chime «цель впереди» + усиленная вибра.
+  // ── Haptics: лёгкая вибрация на смену часа.
   useEffect(() => {
     if (lastClockRef.current !== null && lastClockRef.current !== clockNum) {
-      if (clockNum === 12) {
-        haptic('success', settings.haptics);
-        if (!silenced) chimeOnTarget();
-      } else {
-        haptic('light', settings.haptics);
-      }
+      haptic('light', settings.haptics);
     }
     lastClockRef.current = clockNum;
-  }, [clockNum, settings.haptics, silenced]);
+  }, [clockNum, settings.haptics]);
+
+  // ── Chime «цель на 12» — строго ±5° (не ±15° как при clockNum===12).
+  // Один раз при входе в зону, сброс при выходе.
+  const wasOnTargetRef = useRef(false);
+  useEffect(() => {
+    if (ridePhase !== 'RIDING') {
+      wasOnTargetRef.current = false;
+      return;
+    }
+    const onTarget = rel < 5 || rel > 355;
+    if (onTarget && !wasOnTargetRef.current) {
+      wasOnTargetRef.current = true;
+      haptic('success', settings.haptics);
+      if (!silenced) chimeOnTarget();
+    } else if (!onTarget) {
+      wasOnTargetRef.current = false;
+    }
+  }, [rel, ridePhase, settings.haptics, silenced]);
 
   // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
   // Срабатывает один раз при совпадении стрелки с вектором (rel < 22°),
