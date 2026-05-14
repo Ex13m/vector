@@ -421,7 +421,11 @@ export default function RideScreen({
     });
 
     // При ручном жесте (pan или rotate) — выход из autoFollow.
-    const onUserGesture = () => setAutoFollow(false);
+    // originalEvent есть ТОЛЬКО при действии пользователя (touch/mouse).
+    // Программный jumpTo/easeTo триггерит те же события но БЕЗ originalEvent.
+    const onUserGesture = (e: { originalEvent?: unknown }) => {
+      if (e.originalEvent) setAutoFollow(false);
+    };
     map.on('dragstart', onUserGesture);
     map.on('rotatestart', onUserGesture);
     // Zoom level tracking
