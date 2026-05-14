@@ -82,19 +82,22 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
 
+    // Маркер цели — простой solid-круг (как в RideScreen). SVG-вложения с
+    // inset/left/top давали sub-pixel drift конца вектора относительно центра.
+    const tg = document.createElement('div');
+    tg.style.cssText = [
+      'width:20px', 'height:20px', 'border-radius:50%',
+      `background:${C.target}`,
+      `border:3px solid #fff`,
+      `box-shadow:0 0 0 2px ${C.target},0 0 14px ${C.glow}`,
+      'pointer-events:none',
+    ].join(';');
+    targetMarkerRef.current = new maplibregl.Marker({ element: tg, anchor: 'center' })
+      .setLngLat([target.lng, target.lat])
+      .addTo(map);
+
     map.on('load', () => {
       addVectorSource(map);
-      // Маркер цели — каждый слой явно центрован через translate(-50%,-50%).
-      const tg = document.createElement('div');
-      tg.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
-      tg.innerHTML = `
-        <div style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${C.target};animation:pulse 2s infinite ease-out"></div>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${C.target}" stroke-width="2.5"
-             style="position:absolute;left:4px;top:4px;filter:drop-shadow(0 0 8px ${C.glow})">
-          <circle cx="12" cy="12" r="9"/>
-          <circle cx="12" cy="12" r="3" fill="${C.target}"/>
-        </svg>`;
-      targetMarkerRef.current = new maplibregl.Marker({ element: tg, anchor: 'center' }).setLngLat([target.lng, target.lat]).addTo(map);
     });
 
     map.on('styledata', () => {
