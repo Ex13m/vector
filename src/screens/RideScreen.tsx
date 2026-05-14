@@ -863,8 +863,9 @@ export default function RideScreen({
     lastClockRef.current = clockNum;
   }, [clockNum, settings.haptics, ridePhase]);
 
-  // ── Chime «цель на 12» — строго ±5° (не ±15° как при clockNum===12).
-  // Один раз при входе в зону, сброс при выходе.
+  // ── Chime «цель на 12» — те же ±5° trigger + ±15° hysteresis что и у голоса
+  // в PRE_RIDE/LONG_STOP. Без dwell — в движении быстрый звук-отзыв уместнее
+  // чем ожидание 200ms. Гистерезис предотвращает спам у границы зоны.
   const wasOnTargetRef = useRef(false);
   useEffect(() => {
     if (ridePhase !== 'RIDING') {
@@ -872,11 +873,12 @@ export default function RideScreen({
       return;
     }
     const onTarget = rel < 5 || rel > 355;
+    const offTarget = rel > 15 && rel < 345;  // ±15° hysteresis
     if (onTarget && !wasOnTargetRef.current) {
       wasOnTargetRef.current = true;
       haptic('success', settings.haptics);
       if (!silenced) chimeOnTarget();
-    } else if (!onTarget) {
+    } else if (offTarget) {
       wasOnTargetRef.current = false;
     }
   }, [rel, ridePhase, settings.haptics, silenced]);
