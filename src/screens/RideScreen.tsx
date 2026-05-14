@@ -892,8 +892,8 @@ export default function RideScreen({
       return;
     }
     if (!me || silenced || !compassFired) return;
-    const aligned = rel < 8 || rel > 352;       // ±8° — точное наведение
-    const outOfZone = rel > 30 && rel < 330;     // гистерезис: сброс после ±30°
+    const aligned = rel < 12 || rel > 348;      // ±12° — надёжное наведение
+    const outOfZone = rel > 35 && rel < 325;    // гистерезис: сброс после ±35°
     if (aligned && !wasAlignedRef.current) {
       wasAlignedRef.current = true;
       haptic('success', settings.haptics);
@@ -1494,7 +1494,7 @@ function TargetingHud({
   rel: number;
   mePresent: boolean;
 }) {
-  const aligned = rel < 8 || rel > 352;   // ±8° — синхронно с голосовым триггером
+  const aligned = rel < 12 || rel > 348;  // ±12° — синхронно с голосовым триггером
   const turnRight = !aligned && rel <= 180;
 
   return (
