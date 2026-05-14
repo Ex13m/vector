@@ -71,6 +71,9 @@ export async function searchPlace(query: string, opts: SearchOptions = {}): Prom
   url.searchParams.set('format', 'json');
   url.searchParams.set('limit', '8');
   url.searchParams.set('addressdetails', '1');
+  // dedupe=0: показать все филиалы сетевых магазинов (Макро, Сільпо, АТБ…),
+  // а не схлопывать одноимённые в один результат.
+  url.searchParams.set('dedupe', '0');
   // Location bias: viewbox 50km вокруг позиции, bounded=0 (prefer but not limit)
   if (opts.near) {
     const d = 0.45; // ~50km в градусах
@@ -92,8 +95,13 @@ export async function searchPlace(query: string, opts: SearchOptions = {}): Prom
     return data.map((r) => {
       const parts = (r.display_name || '').split(',').map((s) => s.trim());
       const name = r.name?.trim() || parts[0] || r.display_name;
-      const ctx = parts.slice(1, 3).join(', ');
       const icon = poiIcon(r.class || '', r.type || '');
+      // Для POI: адрес (улица + номер) чтобы отличить филиалы сети.
+      // Для обычных адресов: район/город.
+      const a = r.address || {};
+      const road = [a.road, a.house_number].filter(Boolean).join(' ');
+      const area = a.suburb || a.neighbourhood || a.city_district || a.city || a.town || a.village || '';
+      const ctx = icon && road ? `${road}, ${area}`.replace(/, $/, '') : parts.slice(1, 3).join(', ');
       return {
         display_name: r.display_name,
         name,
