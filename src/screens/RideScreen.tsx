@@ -76,19 +76,19 @@ export default function RideScreen({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
-  const meArrowRef = useRef<SVGElement | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
-  // Накопленный (continuous) угол поворота стрелки в градусах.
-  // Не нормализуем к [0,360), иначе CSS transition крутит «длинной»
-  // через 0° (359→1 = -358° против часовой вместо +2°).
-  const arrowRotRef = useRef<number | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [trail, setTrail] = useState<TrailPoint[]>(
     savedSession?.trail ?? (resumeTrail ? resumeTrail.slice() : []),
   );
   const [heading, setHeading] = useState(0);
-  const [mapBearing, setMapBearing] = useState(0);
+  const [mapZoom, setMapZoom] = useState(14);
+  // autoFollow=true: карта следует за GPS + bearing вращается по courseHeading.
+  // Отключается при ручных жестах (pan/rotate), включается кнопкой центровки.
+  const [autoFollow, setAutoFollow] = useState(true);
+  // lockView=true: ручные жесты (pan/rotate) ЗАБЛОКИРОВАНЫ, только zoom.
+  const [lockView, setLockView] = useState(false);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? 0);
   const [paused, setPaused] = useState(savedSession?.paused ?? false);
   const [silenced, setSilenced] = useState(false);
@@ -97,7 +97,6 @@ export default function RideScreen({
   const [tripName, setTripName] = useState('');
   const [peek, setPeek] = useState(false);
   const [needPerm, setNeedPerm] = useState(false);
-  const [userPanned, setUserPanned] = useState(false);
   const [gpsLost, setGpsLost] = useState(true);
   const [showQuitModal, setShowQuitModal] = useState(false);
   // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
@@ -140,7 +139,6 @@ export default function RideScreen({
     }
   }
   const [riddenM, setRiddenM] = useState<number>(() => riddenRef.current);
-  const userPanTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const lastClockRef = useRef<number | null>(null);
   const savedTripIdRef = useRef<string | null>(null);
@@ -353,9 +351,6 @@ export default function RideScreen({
     mapRef.current = map;
     setMapKey((k) => k + 1); // сигнализируем маркер-эффекту о новой карте
 
-    // Вращение карты разрешено (pinch, two-finger twist).
-    // Стрелка компенсирует mapBearing реактивно через state.
-
     // Маркер цели — добавляем СРАЗУ (до load), чтобы гарантированно был виден.
     // Простой solid-круг, как в ArrivedOverlay — надёжнее DOM-трюков с 1×1.
     const tgEl = document.createElement('div');
@@ -425,34 +420,22 @@ export default function RideScreen({
       });
     });
 
-    const onDragStart = () => {
-      setUserPanned(true);
-      if (userPanTimer.current) window.clearTimeout(userPanTimer.current);
-      userPanTimer.current = window.setTimeout(() => setUserPanned(false), 10_000);
-    };
-    map.on('dragstart', onDragStart);
+    // При ручном жесте (pan или rotate) — выход из autoFollow.
+    const onUserGesture = () => setAutoFollow(false);
+    map.on('dragstart', onUserGesture);
+    map.on('rotatestart', onUserGesture);
+    // Zoom level tracking
+    map.on('zoom', () => setMapZoom(Math.round(map.getZoom())));
 
     return () => {
-      map.off('dragstart', onDragStart);
+      map.off('dragstart', onUserGesture);
+      map.off('rotatestart', onUserGesture);
       map.remove();
       mapRef.current = null;
-      // Сбрасываем рефы маркеров — иначе StrictMode (двойной mount)
-      // оставляет старый ref живым и новый маркер не создаётся.
       meMarkerRef.current = null;
-      meArrowRef.current = null;
       targetMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Реактивное отслеживание map bearing (двупальцевое вращение карты).
-  // Без этого стрелка не перерисовывается при повороте карты пользователем.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const onRotate = () => setMapBearing(map.getBearing());
-    map.on('rotate', onRotate);
-    return () => { map.off('rotate', onRotate); };
   }, []);
 
   // Смена слоя.
@@ -506,16 +489,15 @@ export default function RideScreen({
     });
   }, [settings.layer, target]);
 
-  // ── Маркер «вы» — ромб-стрелка, поворот по dual-mode (движение/компас).
+  // ── Маркер «вы» — фиксированная стрелка ↑ (всегда «вверх»).
+  // Карта вращается вокруг маркера по courseHeading — как Google Navigation.
+  // Никакого CSS rotate — вся ротация через map.setBearing().
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me) return;
     if (!meMarkerRef.current) {
-      // 32×32 контейнер — MapLibre с anchor:'center' ставит центр контейнера
-      // точно на координаты. Никакого 1×1 overflow:visible — он обрезается.
       const el = document.createElement('div');
       el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
-      // Glow-кольцо
       const glow = document.createElement('div');
       glow.style.cssText = [
         'position:absolute', 'inset:0', 'border-radius:50%',
@@ -523,12 +505,12 @@ export default function RideScreen({
         'box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)',
       ].join(';');
       el.appendChild(glow);
-      // Стрелка SVG
+      // Стрелка ↑ — зафиксирована вверх, не вращается
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('width', '26');
       svg.setAttribute('height', '26');
       svg.setAttribute('viewBox', '0 0 24 24');
-      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out';
+      svg.style.cssText = 'position:absolute;left:3px;top:3px';
       const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
       poly.setAttribute('points', '12,2 18,20 12,16 6,20');
       poly.setAttribute('fill', C.ok);
@@ -537,9 +519,10 @@ export default function RideScreen({
       poly.setAttribute('stroke-linejoin', 'round');
       svg.appendChild(poly);
       el.appendChild(svg);
-      meArrowRef.current = svg as unknown as SVGElement;
-      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
-      // Начальный кадр: вы + цель в кадре с запасом — иначе на 50 км цель уезжает.
+      meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([me.lng, me.lat])
+        .addTo(map);
+      // Начальный кадр
       const d = distanceM(me, target);
       if (d > 800) {
         const sw: [number, number] = [Math.min(me.lng, target.lng), Math.min(me.lat, target.lat)];
@@ -551,7 +534,7 @@ export default function RideScreen({
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
-  }, [me, target, mapKey]); // mapKey гарантирует перезапуск после remount карты
+  }, [me, target, mapKey]);
 
   // ── Trail redraw — инкрементальный буфер координат.
   // Вместо trail.map(p => [p.lng, p.lat]) каждый тик (2000 новых nested
@@ -592,17 +575,6 @@ export default function RideScreen({
       });
     }
   }, [me, target]);
-
-  // ── Auto-follow: карта следует за GPS если пользователь не пэнил.
-  // jumpTo (без анимации) вместо easeTo(800ms) — иначе при 1Hz GPS
-  // новая анимация прерывает старую каждый тик, MapLibre дёргает tile/label
-  // re-render → жрёт GPU и батарею. Перемещение и так визуально плавное
-  // т.к. фиксы приходят регулярно.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !me || userPanned) return;
-    map.jumpTo({ center: [me.lng, me.lat] });
-  }, [me, userPanned]);
 
   // ── Sec timer (стопается на pause и в PRE_RIDE/LONG_STOP).
   useEffect(() => {
@@ -656,35 +628,28 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
-  // Rotate «вы» arrow. Компенсируем mapBearing — при вращении карты пользователем
-  // стрелка остаётся согласованной с вектор-линией (которая вращается с картой).
-  //
-  // КРИТИЧНО: накапливаем угол непрерывно, не нормализуя. Иначе при переходе
-  // через 0° (359→1) CSS transition крутит назад 358° через ease-out за 200ms
-  // — стрелка визуально дёргается и проворачивается «не туда».
+  // ── Auto-follow: карта центрирована на GPS + bearing = courseHeading.
+  // Как Google Navigation: маркер «вы» всегда в центре, карта вращается.
   useEffect(() => {
-    const svg = meArrowRef.current;
-    if (!svg) return;
-    const targetDeg = courseHeading - mapBearing;
-    if (arrowRotRef.current === null) {
-      arrowRotRef.current = targetDeg;
-    } else {
-      const currentVisual = ((arrowRotRef.current % 360) + 360) % 360;
-      let diff = (((targetDeg - currentVisual) % 360) + 540) % 360 - 180;
-      arrowRotRef.current += diff;
-    }
-    (svg as unknown as HTMLElement).style.transform = `rotate(${arrowRotRef.current}deg)`;
-  }, [courseHeading, mapBearing]);
+    const map = mapRef.current;
+    if (!map || !me || !autoFollow) return;
+    map.jumpTo({ center: [me.lng, me.lat], bearing: courseHeading });
+  }, [me, autoFollow, courseHeading]);
 
-  // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
+  // lockView: блокируем/разблокируем drag и rotation жесты.
   useEffect(() => {
-    const svg = meArrowRef.current;
-    if (!svg) return;
-    const el = svg as unknown as HTMLElement;
-    el.style.transitionDuration = '500ms';
-    const t = window.setTimeout(() => { el.style.transitionDuration = '200ms'; }, 600);
-    return () => window.clearTimeout(t);
-  }, [ridePhase]);
+    const map = mapRef.current;
+    if (!map) return;
+    if (lockView) {
+      map.dragPan.disable();
+      map.dragRotate.disable();
+      map.touchZoomRotate.disableRotation();
+    } else {
+      map.dragPan.enable();
+      map.dragRotate.enable();
+      map.touchZoomRotate.enableRotation();
+    }
+  }, [lockView]);
 
   // ridden теперь incremental accumulator (см. riddenRef в GPS-callback).
   const ridden = riddenM;
@@ -989,9 +954,13 @@ export default function RideScreen({
 
   function recenter() {
     if (me && mapRef.current) {
-      setUserPanned(false);
-      if (userPanTimer.current) window.clearTimeout(userPanTimer.current);
-      mapRef.current.easeTo({ center: [me.lng, me.lat], zoom: 15, duration: 600 });
+      setAutoFollow(true);
+      mapRef.current.easeTo({
+        center: [me.lng, me.lat],
+        bearing: courseHeading,
+        zoom: 15,
+        duration: 600,
+      });
     }
   }
 
@@ -1158,8 +1127,57 @@ export default function RideScreen({
         </div>
       )}
 
-      {/* Recenter FAB */}
-      {userPanned && me && (
+      {/* Zoom badge */}
+      <div
+        style={{
+          position: 'absolute',
+          right: 14,
+          top: 'calc(50px + env(safe-area-inset-top))',
+          background: 'rgba(11,13,12,0.8)',
+          backdropFilter: 'blur(6px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 8,
+          padding: '3px 8px',
+          fontFamily: F_MONO,
+          fontSize: 10,
+          color: C.inkDim,
+          letterSpacing: '0.08em',
+          zIndex: 5,
+          pointerEvents: 'none',
+        }}
+      >
+        Z{mapZoom}
+      </div>
+
+      {/* Lock view toggle */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          haptic('light', settings.haptics);
+          setLockView((v) => !v);
+          if (!lockView) setAutoFollow(true); // при блокировке — авто-центровка
+        }}
+        aria-label="lock view"
+        style={{
+          position: 'absolute',
+          right: 14,
+          bottom: 'calc(230px + env(safe-area-inset-bottom))',
+          width: 40,
+          height: 40,
+          background: lockView ? 'rgba(72,222,148,0.18)' : 'rgba(11,13,12,0.85)',
+          border: `1px solid ${lockView ? C.ok : C.line2}`,
+          color: lockView ? C.ok : C.inkDim,
+          borderRadius: 10,
+          fontSize: 16,
+          backdropFilter: 'blur(8px)',
+          zIndex: 5,
+        }}
+      >
+        {lockView ? '🔒' : '🔓'}
+      </button>
+
+      {/* Recenter FAB — показывается когда autoFollow выключен */}
+      {!autoFollow && me && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1173,12 +1191,12 @@ export default function RideScreen({
             width: 48,
             height: 48,
             background: 'rgba(11,13,12,0.9)',
-            border: `1px solid ${C.line2}`,
+            border: `1px solid ${C.target}`,
             color: C.target,
             borderRadius: 999,
             fontSize: 18,
             backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+            boxShadow: `0 4px 14px rgba(0,0,0,0.4),0 0 12px ${C.glow}`,
             zIndex: 5,
           }}
         >
