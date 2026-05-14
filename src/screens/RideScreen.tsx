@@ -1156,23 +1156,27 @@ export default function RideScreen({
         </div>
       )}
 
-      {/* Zoom badge */}
+      {/* Zoom badge — под layer-кнопкой слева сверху */}
       <div
         style={{
           position: 'absolute',
-          right: 14,
-          top: 'calc(50px + env(safe-area-inset-top))',
-          background: 'rgba(11,13,12,0.8)',
-          backdropFilter: 'blur(6px)',
+          left: 12,
+          top: 'calc(60px + env(safe-area-inset-top))',
+          background: 'rgba(17,20,19,0.92)',
+          backdropFilter: 'blur(8px)',
           border: `1px solid ${C.line2}`,
           borderRadius: 8,
-          padding: '3px 8px',
+          padding: '4px 9px',
           fontFamily: F_MONO,
-          fontSize: 10,
-          color: C.inkDim,
+          fontSize: 11,
+          fontWeight: 600,
+          color: C.target,
           letterSpacing: '0.08em',
-          zIndex: 5,
+          fontVariantNumeric: 'tabular-nums',
+          zIndex: 6,
           pointerEvents: 'none',
+          minWidth: 38,
+          textAlign: 'center',
         }}
       >
         Z{mapZoom}
