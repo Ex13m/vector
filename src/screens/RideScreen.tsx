@@ -900,7 +900,7 @@ export default function RideScreen({
     }
     if (!me || silenced || !compassFired) return;
     const aligned = rel < 5 || rel > 355;       // ±5° — точное наведение
-    const outOfZone = rel > 30 && rel < 330;    // гистерезис: сброс после ±30°
+    const outOfZone = rel > 15 && rel < 345;    // гистерезис: сброс после ±15° (3× зоны)
 
     if (aligned && !wasAlignedRef.current && alignTimerRef.current === null) {
       // Только что вошли в зону — запускаем dwell-таймер.
