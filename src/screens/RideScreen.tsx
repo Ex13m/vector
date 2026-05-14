@@ -347,6 +347,12 @@ export default function RideScreen({
     mapRef.current = map;
     setMapKey((k) => k + 1); // сигнализируем маркер-эффекту о новой карте
 
+    // Блокируем вращение карты — стрелка «вы» использует CSS-rotation
+    // относительно экрана, а вектор-линия вращается с картой. Без блокировки
+    // случайный двупальцевый жест ломает выравнивание стрелки с вектором.
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+
     // Маркер цели — добавляем СРАЗУ (до load), чтобы гарантированно был виден.
     // Простой solid-круг, как в ArrivedOverlay — надёжнее DOM-трюков с 1×1.
     const tgEl = document.createElement('div');
@@ -637,11 +643,14 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
-  // Rotate «вы» arrow.
+  // Rotate «вы» arrow. Компенсируем map.getBearing() — если карта была
+  // случайно повёрнута жестом, стрелка должна оставаться согласованной
+  // с вектор-линией (которая вращается с картой).
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
-    (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading}deg)`;
+    const mapBearing = mapRef.current?.getBearing() ?? 0;
+    (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading - mapBearing}deg)`;
   }, [courseHeading]);
 
   // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).

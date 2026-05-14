@@ -64,6 +64,17 @@ export function startHeading(handler: HeadingHandler): () => void {
     }
     if (heading === null || Number.isNaN(heading)) return;
 
+    // ── Компенсация поворота экрана: если приложение оказалось в landscape
+    // (браузер, а не PWA), alpha может не учитывать screen.orientation.angle.
+    // webkitCompassHeading (iOS) уже скомпенсирован — пропускаем.
+    if (typeof anyE.webkitCompassHeading !== 'number') {
+      const screenAngle = (typeof screen !== 'undefined' && screen.orientation)
+        ? screen.orientation.angle : 0;
+      if (screenAngle) {
+        heading = (heading + screenAngle) % 360;
+      }
+    }
+
     // ── Low-pass filter (circular): убирает шум магнитометра.
     // Обрабатывает ВСЕ события (~60 Hz), emit гейтится ниже.
     if (Number.isNaN(smoothed)) {

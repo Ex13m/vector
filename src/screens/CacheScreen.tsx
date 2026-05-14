@@ -77,6 +77,11 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     });
     mapRef.current = map;
 
+    // Блокируем вращение карты — стрелка «вы» привязана к экрану (CSS),
+    // а вектор-линия вращается с картой. Без блокировки жест ломает выравнивание.
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+
     map.on('load', () => {
       addVectorSource(map);
       // Маркер цели — каждый слой явно центрован через translate(-50%,-50%).
@@ -192,7 +197,10 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
       const svg = meMarkerRef.current.getElement().querySelector('svg');
-      if (svg) (svg as unknown as HTMLElement).style.transform = `rotate(${bearingTo(me, target)}deg)`;
+      if (svg) {
+        const mapBearing = map?.getBearing() ?? 0;
+        (svg as unknown as HTMLElement).style.transform = `rotate(${bearingTo(me, target) - mapBearing}deg)`;
+      }
     }
   }, [me, target]);
 
