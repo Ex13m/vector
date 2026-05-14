@@ -515,7 +515,7 @@ export default function RideScreen({
       svg.setAttribute('width', '26');
       svg.setAttribute('height', '26');
       svg.setAttribute('viewBox', '0 0 24 24');
-      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out';
+      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 120ms linear';
       const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
       poly.setAttribute('points', '12,2 18,20 12,16 6,20');
       poly.setAttribute('fill', C.ok);
@@ -653,13 +653,13 @@ export default function RideScreen({
     (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading - mapBearing}deg)`;
   }, [courseHeading]);
 
-  // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
+  // Плавная анимация 400мс при переключении фазы (стрелка не прыгает).
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
     const el = svg as unknown as HTMLElement;
-    el.style.transitionDuration = '500ms';
-    const t = window.setTimeout(() => { el.style.transitionDuration = '200ms'; }, 600);
+    el.style.transitionDuration = '400ms';
+    const t = window.setTimeout(() => { el.style.transitionDuration = '120ms'; }, 500);
     return () => window.clearTimeout(t);
   }, [ridePhase]);
 
@@ -836,13 +836,16 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, paused, arrived, settings.intervalSec, hasFix, ridePhase]);
 
-  // ── Haptics: лёгкая вибрация на смену часа.
+  // ── Haptics: лёгкая вибрация на смену часа — только в RIDING.
+  // В PRE_RIDE / LONG_STOP пользователь крутит телефон → часы меняются
+  // каждую секунду → haptic спамит мотором. Отключаем.
   useEffect(() => {
+    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastClockRef.current !== null && lastClockRef.current !== clockNum) {
       haptic('light', settings.haptics);
     }
     lastClockRef.current = clockNum;
-  }, [clockNum, settings.haptics]);
+  }, [clockNum, settings.haptics, ridePhase]);
 
   // ── Chime «цель на 12» — строго ±5° (не ±15° как при clockNum===12).
   // Один раз при входе в зону, сброс при выходе.
@@ -863,8 +866,9 @@ export default function RideScreen({
   }, [rel, ridePhase, settings.haptics, silenced]);
 
   // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
-  // Срабатывает один раз при совпадении стрелки с вектором (rel < 22°),
-  // сбрасывается при выходе из зоны. Требует реального компаса (compassFired).
+  // Срабатывает ОДИН РАЗ когда стрелка точно на цели (±8°).
+  // Это единственный haptic+voice в PRE_RIDE — всё остальное молчит.
+  // Сбрасывается при выходе за ±30° (гистерезис, чтоб не спамило на границе).
   const wasAlignedRef = useRef(false);
   useEffect(() => {
     if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
@@ -872,7 +876,8 @@ export default function RideScreen({
       return;
     }
     if (!me || silenced || !compassFired) return;
-    const aligned = rel < 22 || rel > 338;
+    const aligned = rel < 8 || rel > 352;       // ±8° — точное наведение
+    const outOfZone = rel > 30 && rel < 330;     // гистерезис: сброс после ±30°
     if (aligned && !wasAlignedRef.current) {
       wasAlignedRef.current = true;
       haptic('success', settings.haptics);
@@ -880,7 +885,7 @@ export default function RideScreen({
         settings.lang === 'ru' ? 'Цель впереди' :
         settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
       speak(phrase, settings.lang, settings.voiceURI);
-    } else if (!aligned) {
+    } else if (outOfZone) {
       wasAlignedRef.current = false;
     }
   }, [rel, ridePhase, me, silenced, compassFired, settings.lang, settings.voiceURI, settings.haptics]);
@@ -1377,7 +1382,7 @@ function TargetingHud({
   rel: number;
   mePresent: boolean;
 }) {
-  const aligned = rel < 22 || rel > 338;
+  const aligned = rel < 8 || rel > 352;   // ±8° — синхронно с голосовым триггером
   const turnRight = !aligned && rel <= 180;
 
   return (
