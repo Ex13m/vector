@@ -34,7 +34,6 @@ export async function requestIosPermission(): Promise<boolean> {
 export function startHeading(handler: HeadingHandler): () => void {
   const MIN_DELTA_DEG = 2;
   const MIN_INTERVAL_MS = 100; // emit ≤10 Hz
-  const SMOOTHING = 0.25;      // low-pass: 0 = no change, 1 = no smoothing
 
   let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
@@ -75,15 +74,19 @@ export function startHeading(handler: HeadingHandler): () => void {
       }
     }
 
-    // ── Low-pass filter (circular): убирает шум магнитометра.
-    // Обрабатывает ВСЕ события (~60 Hz), emit гейтится ниже.
+    // ── Adaptive low-pass filter (circular): убирает шум магнитометра,
+    // но быстро реагирует на реальные повороты.
+    // Фиксированный α=0.25 отставал на ~45° при быстром повороте и возврате.
+    // Адаптивный: большие дельты (поворот) → α=0.6, малые (дрожь) → α=0.2.
     if (Number.isNaN(smoothed)) {
       smoothed = heading;
     } else {
       let diff = heading - smoothed;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
-      smoothed = ((smoothed + diff * SMOOTHING) % 360 + 360) % 360;
+      const absDiff = Math.abs(diff);
+      const alpha = absDiff > 30 ? 0.6 : absDiff > 10 ? 0.4 : 0.2;
+      smoothed = ((smoothed + diff * alpha) % 360 + 360) % 360;
     }
 
     // ── Emit gate: ≤10 Hz + ≥2° дельта от прошлого emit.
