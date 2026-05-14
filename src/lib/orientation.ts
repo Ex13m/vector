@@ -32,8 +32,8 @@ export async function requestIosPermission(): Promise<boolean> {
  * Без фильтра событие летит на 60Hz → весь useMemo цикл re-render-ится.
  */
 export function startHeading(handler: HeadingHandler): () => void {
-  const MIN_DELTA_DEG = 2;
-  const MIN_INTERVAL_MS = 100; // emit ≤10 Hz
+  const MIN_DELTA_DEG = 1;     // 1° шаг — плавнее визуально
+  const MIN_INTERVAL_MS = 60;  // emit ≤16 Hz — отзывчивый компас
 
   let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
@@ -64,17 +64,18 @@ export function startHeading(handler: HeadingHandler): () => void {
     if (heading === null || Number.isNaN(heading)) return;
 
     // ── Low-pass filter (circular): убирает шум магнитометра.
-    // α=0.25 — проверен в поле, без дрейфа и без заметного лага.
+    // α=0.5 — компромисс: убирает дрожь, но без заметного лага
+    // при ручном вращении телефона (PRE_RIDE compass mode).
     if (Number.isNaN(smoothed)) {
       smoothed = heading;
     } else {
       let diff = heading - smoothed;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
-      smoothed = ((smoothed + diff * 0.25) % 360 + 360) % 360;
+      smoothed = ((smoothed + diff * 0.5) % 360 + 360) % 360;
     }
 
-    // ── Emit gate: ≤10 Hz + ≥2° дельта от прошлого emit.
+    // ── Emit gate: ≤16 Hz + ≥1° дельта от прошлого emit.
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
     const delta = Number.isNaN(lastEmitted)
