@@ -261,14 +261,14 @@ export default function PickScreen({
       searchAbortRef.current?.abort();
       const ac = new AbortController();
       searchAbortRef.current = ac;
-      void searchPlace(q, ac.signal).then((r) => {
+      void searchPlace(q, { signal: ac.signal, near: me }).then((r) => {
         if (!ac.signal.aborted) setSuggestions(r);
       });
     }, 400);
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [search]);
+  }, [search, me]);
 
   // Esc → скрыть подсказки.
   useEffect(() => {
@@ -716,10 +716,14 @@ function SuggestionRow({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.target} strokeWidth="2" style={{ flexShrink: 0 }}>
-          <circle cx="12" cy="10" r="3" />
-          <path d="M12 2C8 2 5 5 5 10c0 5 7 12 7 12s7-7 7-12c0-5-3-8-7-8z" />
-        </svg>
+        {result.icon ? (
+          <span style={{ fontSize: 14, flexShrink: 0, width: 16, textAlign: 'center' }}>{result.icon}</span>
+        ) : (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.target} strokeWidth="2" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="10" r="3" />
+            <path d="M12 2C8 2 5 5 5 10c0 5 7 12 7 12s7-7 7-12c0-5-3-8-7-8z" />
+          </svg>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: F_DISP, fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.3 }}>
             <Highlight text={result.name} query={query} />
