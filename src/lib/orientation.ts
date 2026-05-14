@@ -32,11 +32,9 @@ export async function requestIosPermission(): Promise<boolean> {
  * Без фильтра событие летит на 60Hz → весь useMemo цикл re-render-ится.
  */
 export function startHeading(handler: HeadingHandler): () => void {
-  const MIN_DELTA_DEG = 1;     // 1° гранулярность — плавнее для компаса
-  const MIN_INTERVAL_MS = 80;  // emit ≤12.5 Hz — чаще для плавности
-  const SMOOTHING = 0.3;       // low-pass: 0.3 = баланс плавность/отзывчивость
-                                // 0.15 = слишком laggy (отстаёт на ~20°),
-                                // 0.5+ = пропускает дрожь магнитометра
+  const MIN_DELTA_DEG = 2;
+  const MIN_INTERVAL_MS = 100; // emit ≤10 Hz
+  const SMOOTHING = 0.25;      // low-pass: 0 = no change, 1 = no smoothing
 
   let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
