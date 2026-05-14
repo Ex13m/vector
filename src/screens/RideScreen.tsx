@@ -882,25 +882,41 @@ export default function RideScreen({
   }, [rel, ridePhase, settings.haptics, silenced]);
 
   // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
-  // Срабатывает ОДИН РАЗ когда стрелка точно на цели (±8°).
-  // Это единственный haptic+voice в PRE_RIDE — всё остальное молчит.
-  // Сбрасывается при выходе за ±30° (гистерезис, чтоб не спамило на границе).
+  // Срабатывает когда пользователь ТОЧНО навёлся (±5°) и УДЕРЖИВАЕТ 200ms.
+  // Dwell-time фильтрует:
+  //   • compass jitter (filter convergence ripple вокруг истинного значения)
+  //   • быстрое проскакивание через узкую зону при резком повороте
+  // Сбрасывается при выходе за ±30° (гистерезис).
   const wasAlignedRef = useRef(false);
+  const alignTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
       wasAlignedRef.current = false;
+      if (alignTimerRef.current) {
+        window.clearTimeout(alignTimerRef.current);
+        alignTimerRef.current = null;
+      }
       return;
     }
     if (!me || silenced || !compassFired) return;
-    const aligned = rel < 12 || rel > 348;      // ±12° — надёжное наведение
-    const outOfZone = rel > 35 && rel < 325;    // гистерезис: сброс после ±35°
-    if (aligned && !wasAlignedRef.current) {
-      wasAlignedRef.current = true;
-      haptic('success', settings.haptics);
-      const phrase =
-        settings.lang === 'ru' ? 'Цель впереди' :
-        settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
-      speak(phrase, settings.lang, settings.voiceURI);
+    const aligned = rel < 5 || rel > 355;       // ±5° — точное наведение
+    const outOfZone = rel > 30 && rel < 330;    // гистерезис: сброс после ±30°
+
+    if (aligned && !wasAlignedRef.current && alignTimerRef.current === null) {
+      // Только что вошли в зону — запускаем dwell-таймер.
+      alignTimerRef.current = window.setTimeout(() => {
+        alignTimerRef.current = null;
+        wasAlignedRef.current = true;
+        haptic('success', settings.haptics);
+        const phrase =
+          settings.lang === 'ru' ? 'Цель впереди' :
+          settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
+        speak(phrase, settings.lang, settings.voiceURI);
+      }, 200);
+    } else if (!aligned && alignTimerRef.current !== null) {
+      // Вышли из зоны до конца dwell — отменяем таймер.
+      window.clearTimeout(alignTimerRef.current);
+      alignTimerRef.current = null;
     } else if (outOfZone) {
       wasAlignedRef.current = false;
     }
@@ -1494,7 +1510,7 @@ function TargetingHud({
   rel: number;
   mePresent: boolean;
 }) {
-  const aligned = rel < 12 || rel > 348;  // ±12° — синхронно с голосовым триггером
+  const aligned = rel < 5 || rel > 355;   // ±5° — синхронно с голосовым триггером
   const turnRight = !aligned && rel <= 180;
 
   return (
