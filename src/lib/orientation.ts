@@ -34,7 +34,9 @@ export async function requestIosPermission(): Promise<boolean> {
 export function startHeading(handler: HeadingHandler): () => void {
   const MIN_DELTA_DEG = 1;     // 1° гранулярность — плавнее для компаса
   const MIN_INTERVAL_MS = 80;  // emit ≤12.5 Hz — чаще для плавности
-  const SMOOTHING = 0.15;      // low-pass: сильнее фильтр — убирает дрожь
+  const SMOOTHING = 0.3;       // low-pass: 0.3 = баланс плавность/отзывчивость
+                                // 0.15 = слишком laggy (отстаёт на ~20°),
+                                // 0.5+ = пропускает дрожь магнитометра
 
   let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
