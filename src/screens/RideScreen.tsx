@@ -632,27 +632,51 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
-  // ── Auto-follow: карта центрирована на GPS + bearing = courseHeading.
-  // Как Google Navigation: маркер «вы» всегда в центре, карта вращается.
+  // ── Auto-follow: position update.
+  // GPS приходит ~1 Hz — jumpTo без анимации, фиксы и так регулярные.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me || !autoFollow) return;
-    map.jumpTo({ center: [me.lng, me.lat], bearing: courseHeading });
-  }, [me, autoFollow, courseHeading]);
+    map.jumpTo({ center: [me.lng, me.lat] });
+  }, [me, autoFollow]);
 
-  // lockView: блокируем/разблокируем drag и rotation жесты.
+  // ── Auto-follow: bearing update — отдельный эффект.
+  // courseHeading меняется 16 Hz (компас) → easeTo с короткой анимацией
+  // плавно интерполирует между значениями, MapLibre сам берёт кратчайший путь.
+  // Deadzone 1° — на меньшую дельту не дёргаем карту (CPU + батарея).
+  const lastMapBearingRef = useRef<number | null>(null);
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    if (lockView) {
-      map.dragPan.disable();
-      map.dragRotate.disable();
-      map.touchZoomRotate.disableRotation();
-    } else {
+    if (!map || !autoFollow) return;
+    const last = lastMapBearingRef.current;
+    if (last !== null) {
+      // shortest-path delta in [-180, 180]
+      const diff = Math.abs((((courseHeading - last) % 360) + 540) % 360 - 180);
+      if (diff < 1) return;
+    }
+    lastMapBearingRef.current = courseHeading;
+    map.easeTo({ bearing: courseHeading, duration: 200, animate: true });
+  }, [courseHeading, autoFollow]);
+
+  // При выходе из autoFollow сбрасываем deadzone-cache, чтоб при возврате
+  // первый bearing-emit точно сработал (а не упёрся в «дельта мала»).
+  useEffect(() => {
+    if (autoFollow) lastMapBearingRef.current = null;
+  }, [autoFollow]);
+
+  // lockView: блокируем drag/rotation жесты. Cleanup-pattern — гарантирует
+  // обратное включение, даже если что-то пойдёт не так с toggle-логикой.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !lockView) return;
+    map.dragPan.disable();
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+    return () => {
       map.dragPan.enable();
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
-    }
+    };
   }, [lockView]);
 
   // ridden теперь incremental accumulator (см. riddenRef в GPS-callback).
@@ -958,13 +982,14 @@ export default function RideScreen({
 
   function recenter() {
     if (me && mapRef.current) {
-      setAutoFollow(true);
-      mapRef.current.easeTo({
+      // jumpTo вместо easeTo: следующий compass-tick через 60ms триггерит свой
+      // easeTo bearing → прервал бы анимацию центровки. Snap нагляднее и проще.
+      mapRef.current.jumpTo({
         center: [me.lng, me.lat],
         bearing: courseHeading,
         zoom: 15,
-        duration: 600,
       });
+      setAutoFollow(true);
     }
   }
 
@@ -1153,35 +1178,60 @@ export default function RideScreen({
         Z{mapZoom}
       </div>
 
-      {/* Lock view toggle */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          haptic('light', settings.haptics);
-          setLockView((v) => !v);
-          if (!lockView) setAutoFollow(true); // при блокировке — авто-центровка
-        }}
-        aria-label="lock view"
-        style={{
-          position: 'absolute',
-          right: 14,
-          bottom: 'calc(230px + env(safe-area-inset-bottom))',
-          width: 40,
-          height: 40,
-          background: lockView ? 'rgba(72,222,148,0.18)' : 'rgba(11,13,12,0.85)',
-          border: `1px solid ${lockView ? C.ok : C.line2}`,
-          color: lockView ? C.ok : C.inkDim,
-          borderRadius: 10,
-          fontSize: 16,
-          backdropFilter: 'blur(8px)',
-          zIndex: 5,
-        }}
-      >
-        {lockView ? '🔒' : '🔓'}
-      </button>
+      {/* Lock view toggle — слева от центровки */}
+      {me && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic('light', settings.haptics);
+            setLockView((prev) => {
+              const next = !prev;
+              // При входе в lock — автоматически центрируемся
+              if (next) setAutoFollow(true);
+              return next;
+            });
+          }}
+          aria-label="lock view"
+          style={{
+            position: 'absolute',
+            right: 72, // 14 + 48 + 10 — слева от ⊕
+            bottom: 'calc(180px + env(safe-area-inset-bottom))',
+            width: 48,
+            height: 48,
+            background: lockView ? 'rgba(72,222,148,0.16)' : 'rgba(11,13,12,0.9)',
+            border: `1px solid ${lockView ? C.ok : C.line2}`,
+            color: lockView ? C.ok : C.inkDim,
+            borderRadius: 999,
+            backdropFilter: 'blur(8px)',
+            boxShadow: lockView
+              ? `0 4px 14px rgba(0,0,0,0.4),0 0 10px ${C.okGlow}`
+              : '0 4px 14px rgba(0,0,0,0.4)',
+            zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          {lockView ? (
+            // Замок закрыт
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          ) : (
+            // Замок открыт
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+            </svg>
+          )}
+        </button>
+      )}
 
-      {/* Recenter FAB — показывается когда autoFollow выключен */}
-      {!autoFollow && me && (
+      {/* Recenter FAB — всегда видна (когда есть GPS).
+          Подсвечивается когда autoFollow выключен — показатель «нажми чтоб вернуться». */}
+      {me && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1194,17 +1244,30 @@ export default function RideScreen({
             bottom: 'calc(180px + env(safe-area-inset-bottom))',
             width: 48,
             height: 48,
-            background: 'rgba(11,13,12,0.9)',
-            border: `1px solid ${C.target}`,
-            color: C.target,
+            background: !autoFollow ? 'rgba(11,13,12,0.9)' : 'rgba(11,13,12,0.85)',
+            border: `1px solid ${!autoFollow ? C.target : C.line2}`,
+            color: !autoFollow ? C.target : C.inkDim,
             borderRadius: 999,
-            fontSize: 18,
             backdropFilter: 'blur(8px)',
-            boxShadow: `0 4px 14px rgba(0,0,0,0.4),0 0 12px ${C.glow}`,
+            boxShadow: !autoFollow
+              ? `0 4px 14px rgba(0,0,0,0.4),0 0 12px ${C.glow}`
+              : '0 4px 14px rgba(0,0,0,0.4)',
             zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
           }}
         >
-          ⊕
+          {/* Crosshair icon — центровка */}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="12" r="8" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
         </button>
       )}
 
