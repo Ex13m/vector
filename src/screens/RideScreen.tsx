@@ -342,6 +342,7 @@ export default function RideScreen({
       style: styleFor(settings.layer),
       center: [target.lng, target.lat],
       zoom: 14,
+      bearing: 0,              // строго на север
       attributionControl: { compact: true },
     });
     mapRef.current = map;
@@ -515,7 +516,7 @@ export default function RideScreen({
       svg.setAttribute('width', '26');
       svg.setAttribute('height', '26');
       svg.setAttribute('viewBox', '0 0 24 24');
-      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 120ms linear';
+      svg.style.cssText = 'position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out';
       const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
       poly.setAttribute('points', '12,2 18,20 12,16 6,20');
       poly.setAttribute('fill', C.ok);
@@ -653,13 +654,13 @@ export default function RideScreen({
     (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading - mapBearing}deg)`;
   }, [courseHeading]);
 
-  // Плавная анимация 400мс при переключении фазы (стрелка не прыгает).
+  // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
     const el = svg as unknown as HTMLElement;
-    el.style.transitionDuration = '400ms';
-    const t = window.setTimeout(() => { el.style.transitionDuration = '120ms'; }, 500);
+    el.style.transitionDuration = '500ms';
+    const t = window.setTimeout(() => { el.style.transitionDuration = '200ms'; }, 600);
     return () => window.clearTimeout(t);
   }, [ridePhase]);
 
