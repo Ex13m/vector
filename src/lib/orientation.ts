@@ -26,16 +26,14 @@ export async function requestIosPermission(): Promise<boolean> {
 }
 
 /**
- * Подписка на компас. Фильтр: handler вызывается ТОЛЬКО если
- * (а) дельта heading >= MIN_DELTA_DEG и
- * (б) с прошлого вызова прошло >= MIN_INTERVAL_MS.
- * Без фильтра событие летит на 60Hz → весь useMemo цикл re-render-ится.
+ * Подписка на компас. Throttle только по времени (16 Hz). Дельта-гейт
+ * НЕ используем: LPF сходится экспоненциально, и любой гейт >0° обрезает
+ * хвост сходимости — стрелка застревает в 0.5°–1° от истинного значения
+ * («не докручивает»). CSS transition визуально сглаживает 16 Hz эмиты.
  */
 export function startHeading(handler: HeadingHandler): () => void {
-  const MIN_DELTA_DEG = 1;     // 1° шаг — плавнее визуально
-  const MIN_INTERVAL_MS = 60;  // emit ≤16 Hz — отзывчивый компас
+  const MIN_INTERVAL_MS = 60;  // emit ≤16 Hz — отзывчивый компас, без re-render-шторма
 
-  let lastEmitted = NaN;       // NaN sentinel → first event always passes
   let lastEmitAt = 0;
   let smoothed = NaN;          // low-pass filter state (circular)
   let hasAbsolute = false;     // true once absolute/webkit event fires
@@ -75,17 +73,10 @@ export function startHeading(handler: HeadingHandler): () => void {
       smoothed = ((smoothed + diff * 0.5) % 360 + 360) % 360;
     }
 
-    // ── Emit gate: ≤16 Hz + ≥1° дельта от прошлого emit.
+    // ── Emit: только time-throttle. Filter сам отсекает шум, гейт по дельте
+    // обрезал бы хвост сходимости (стрелка не докручивает на 0.5°–1°).
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
-    const delta = Number.isNaN(lastEmitted)
-      ? 360
-      : Math.min(
-          Math.abs(smoothed - lastEmitted),
-          360 - Math.abs(smoothed - lastEmitted),
-        );
-    if (delta < MIN_DELTA_DEG) return;
-    lastEmitted = smoothed;
     lastEmitAt = now;
     handler(smoothed);
   };
