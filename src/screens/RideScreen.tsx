@@ -78,6 +78,10 @@ export default function RideScreen({
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
+  // Накопленный (continuous) угол поворота стрелки в градусах.
+  // Не нормализуем к [0,360), иначе CSS transition крутит «длинной»
+  // через 0° (359→1 = -358° против часовой вместо +2°).
+  const arrowRotRef = useRef<number | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [trail, setTrail] = useState<TrailPoint[]>(
@@ -647,11 +651,25 @@ export default function RideScreen({
   // Rotate «вы» arrow. Компенсируем map.getBearing() — если карта была
   // случайно повёрнута жестом, стрелка должна оставаться согласованной
   // с вектор-линией (которая вращается с картой).
+  //
+  // КРИТИЧНО: накапливаем угол непрерывно, не нормализуя. Иначе при переходе
+  // через 0° (359→1) CSS transition крутит назад 358° через ease-out за 200ms
+  // — стрелка визуально дёргается и проворачивается «не туда».
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
     const mapBearing = mapRef.current?.getBearing() ?? 0;
-    (svg as unknown as HTMLElement).style.transform = `rotate(${courseHeading - mapBearing}deg)`;
+    const targetDeg = courseHeading - mapBearing;
+    if (arrowRotRef.current === null) {
+      arrowRotRef.current = targetDeg;
+    } else {
+      // currentVisual ∈ [0, 360) — куда стрелка СЕЙЧАС визуально смотрит
+      const currentVisual = ((arrowRotRef.current % 360) + 360) % 360;
+      // diff — кратчайший путь от currentVisual до targetDeg в [-180, 180]
+      let diff = (((targetDeg - currentVisual) % 360) + 540) % 360 - 180;
+      arrowRotRef.current += diff;
+    }
+    (svg as unknown as HTMLElement).style.transform = `rotate(${arrowRotRef.current}deg)`;
   }, [courseHeading]);
 
   // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
