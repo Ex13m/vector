@@ -88,6 +88,7 @@ export default function RideScreen({
     savedSession?.trail ?? (resumeTrail ? resumeTrail.slice() : []),
   );
   const [heading, setHeading] = useState(0);
+  const [mapBearing, setMapBearing] = useState(0);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? 0);
   const [paused, setPaused] = useState(savedSession?.paused ?? false);
   const [silenced, setSilenced] = useState(false);
@@ -352,11 +353,8 @@ export default function RideScreen({
     mapRef.current = map;
     setMapKey((k) => k + 1); // сигнализируем маркер-эффекту о новой карте
 
-    // Блокируем вращение карты — стрелка «вы» использует CSS-rotation
-    // относительно экрана, а вектор-линия вращается с картой. Без блокировки
-    // случайный двупальцевый жест ломает выравнивание стрелки с вектором.
-    map.dragRotate.disable();
-    map.touchZoomRotate.disableRotation();
+    // Вращение карты разрешено (pinch, two-finger twist).
+    // Стрелка компенсирует mapBearing реактивно через state.
 
     // Маркер цели — добавляем СРАЗУ (до load), чтобы гарантированно был виден.
     // Простой solid-круг, как в ArrivedOverlay — надёжнее DOM-трюков с 1×1.
@@ -445,6 +443,16 @@ export default function RideScreen({
       targetMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Реактивное отслеживание map bearing (двупальцевое вращение карты).
+  // Без этого стрелка не перерисовывается при повороте карты пользователем.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onRotate = () => setMapBearing(map.getBearing());
+    map.on('rotate', onRotate);
+    return () => { map.off('rotate', onRotate); };
   }, []);
 
   // Смена слоя.
@@ -648,9 +656,8 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
-  // Rotate «вы» arrow. Компенсируем map.getBearing() — если карта была
-  // случайно повёрнута жестом, стрелка должна оставаться согласованной
-  // с вектор-линией (которая вращается с картой).
+  // Rotate «вы» arrow. Компенсируем mapBearing — при вращении карты пользователем
+  // стрелка остаётся согласованной с вектор-линией (которая вращается с картой).
   //
   // КРИТИЧНО: накапливаем угол непрерывно, не нормализуя. Иначе при переходе
   // через 0° (359→1) CSS transition крутит назад 358° через ease-out за 200ms
@@ -658,19 +665,16 @@ export default function RideScreen({
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
-    const mapBearing = mapRef.current?.getBearing() ?? 0;
     const targetDeg = courseHeading - mapBearing;
     if (arrowRotRef.current === null) {
       arrowRotRef.current = targetDeg;
     } else {
-      // currentVisual ∈ [0, 360) — куда стрелка СЕЙЧАС визуально смотрит
       const currentVisual = ((arrowRotRef.current % 360) + 360) % 360;
-      // diff — кратчайший путь от currentVisual до targetDeg в [-180, 180]
       let diff = (((targetDeg - currentVisual) % 360) + 540) % 360 - 180;
       arrowRotRef.current += diff;
     }
     (svg as unknown as HTMLElement).style.transform = `rotate(${arrowRotRef.current}deg)`;
-  }, [courseHeading]);
+  }, [courseHeading, mapBearing]);
 
   // Плавная анимация 500мс при переключении фазы (стрелка не прыгает).
   useEffect(() => {

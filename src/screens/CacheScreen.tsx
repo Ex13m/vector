@@ -47,6 +47,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const distancePillRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
+  const [mapBearing, setMapBearing] = useState(0);
   const [currentBox, setCurrentBox] = useState<LngLatBox>(box);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [hintHidden, setHintHidden] = useState(false);
@@ -77,10 +78,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     });
     mapRef.current = map;
 
-    // Блокируем вращение карты — стрелка «вы» привязана к экрану (CSS),
-    // а вектор-линия вращается с картой. Без блокировки жест ломает выравнивание.
-    map.dragRotate.disable();
-    map.touchZoomRotate.disableRotation();
+    // Вращение карты разрешено. Стрелка компенсирует bearing реактивно.
 
     // Маркер цели — простой solid-круг (как в RideScreen). SVG-вложения с
     // inset/left/top давали sub-pixel drift конца вектора относительно центра.
@@ -155,7 +153,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     }
   }, [me, target, settings.units]);
 
-  // Слушатель pan карты для обновления currentBox + скрытия hint.
+  // Слушатель pan/rotate карты для обновления currentBox + bearing + скрытия hint.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -164,9 +162,12 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
       setHintHidden(true);
     };
+    const onRotate = () => setMapBearing(map.getBearing());
     map.on('move', onMove);
+    map.on('rotate', onRotate);
     return () => {
       map.off('move', onMove);
+      map.off('rotate', onRotate);
     };
   }, []);
 
@@ -182,18 +183,18 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
   }, [me, target]);
 
-  // Маркер «вы» — ромб-стрелка на цель.
+  // Маркер «вы» — ромб-стрелка на цель. Компенсируем mapBearing реактивно.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me) return;
+    const deg = bearingTo(me, target) - mapBearing;
     if (!meMarkerRef.current) {
       const el = document.createElement('div');
-      const deg = bearingTo(me, target);
       el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
       el.innerHTML = `
         <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.15);box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)"></div>
         <svg width="26" height="26" viewBox="0 0 24 24"
-             style="position:absolute;left:3px;top:3px;transform:rotate(${deg}deg)">
+             style="position:absolute;left:3px;top:3px;transform:rotate(${deg}deg);transition:transform 200ms ease-out">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
@@ -201,11 +202,10 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
       const svg = meMarkerRef.current.getElement().querySelector('svg');
       if (svg) {
-        const mapBearing = map?.getBearing() ?? 0;
-        (svg as unknown as HTMLElement).style.transform = `rotate(${bearingTo(me, target) - mapBearing}deg)`;
+        (svg as unknown as HTMLElement).style.transform = `rotate(${deg}deg)`;
       }
     }
-  }, [me, target]);
+  }, [me, target, mapBearing]);
 
   // Слой.
   useEffect(() => {
