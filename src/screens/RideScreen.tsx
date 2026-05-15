@@ -535,10 +535,12 @@ export default function RideScreen({
       } else {
         map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
       }
-    } else {
+    } else if (!autoFollow) {
+      // autoFollow: позицию маркера ведёт rAF-цикл камеры (плавно).
+      // Вне autoFollow обновляем здесь — карта не движется, а маркер да.
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
-  }, [me, target, mapKey]);
+  }, [me, target, mapKey, autoFollow]);
 
   // ── Trail redraw — инкрементальный буфер координат.
   // Вместо trail.map(p => [p.lng, p.lat]) каждый тик (2000 новых nested
@@ -632,42 +634,51 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
-  // ── Auto-follow: position update.
-  // GPS приходит ~1 Hz — jumpTo без анимации, фиксы и так регулярные.
+  // ── Auto-follow: единый rAF-цикл камеры.
+  // GPS приходит ~1 Hz, courseHeading ~16 Hz. Раньше центр снапался jumpTo
+  // раз в секунду → карта ехала рывками. Теперь камера каждый кадр (~60 fps)
+  // экспоненциально лерпит центр и bearing к целевым значениям → плавно.
+  // Один цикл владеет камерой — нет конфликта jumpTo/easeTo между эффектами.
+  const camTargetPosRef = useRef<{ lng: number; lat: number } | null>(
+    me ? { lng: me.lng, lat: me.lat } : null,
+  );
+  const camTargetBearingRef = useRef(courseHeading);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !me || !autoFollow) return;
-    map.jumpTo({ center: [me.lng, me.lat] });
-  }, [me, autoFollow]);
+    if (me) camTargetPosRef.current = { lng: me.lng, lat: me.lat };
+  }, [me]);
+  useEffect(() => {
+    camTargetBearingRef.current = courseHeading;
+  }, [courseHeading]);
 
-  // ── Auto-follow: bearing update — отдельный эффект.
-  // courseHeading меняется 16 Hz (компас) → easeTo с короткой анимацией
-  // плавно интерполирует между значениями, MapLibre сам берёт кратчайший путь.
-  // Deadzone 1° — на меньшую дельту не дёргаем карту (CPU + батарея).
-  const lastMapBearingRef = useRef<number | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !autoFollow) return;
-    const last = lastMapBearingRef.current;
-    if (last !== null) {
-      // shortest-path delta in [-180, 180]
-      const diff = Math.abs((((courseHeading - last) % 360) + 540) % 360 - 180);
-      if (diff < 1) return;
-    }
-    lastMapBearingRef.current = courseHeading;
-    // Первый раз — мгновенно (карта только создана, анимация от 0° выглядит как баг).
-    if (last === null) {
-      map.setBearing(courseHeading);
-    } else {
-      map.easeTo({ bearing: courseHeading, duration: 200, animate: true });
-    }
-  }, [courseHeading, autoFollow]);
-
-  // При выходе из autoFollow сбрасываем deadzone-cache, чтоб при возврате
-  // первый bearing-emit точно сработал (а не упёрся в «дельта мала»).
-  useEffect(() => {
-    if (autoFollow) lastMapBearingRef.current = null;
-  }, [autoFollow]);
+    let raf = 0;
+    // Стартуем с текущего положения карты — плавный перехват из любого
+    // состояния (вступительный flyTo, ручной пан, recenter).
+    let curLng = map.getCenter().lng;
+    let curLat = map.getCenter().lat;
+    let curBearing = map.getBearing();
+    const POS_K = 0.12;
+    const BEARING_K = 0.18;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const tPos = camTargetPosRef.current;
+      if (!tPos) return;
+      const dLng = tPos.lng - curLng;
+      const dLat = tPos.lat - curLat;
+      // shortest-path delta bearing в [-180, 180]
+      const dB = ((camTargetBearingRef.current - curBearing) % 360 + 540) % 360 - 180;
+      if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7 && Math.abs(dB) < 0.05) return;
+      curLng += dLng * POS_K;
+      curLat += dLat * POS_K;
+      curBearing = (curBearing + dB * BEARING_K + 360) % 360;
+      map.jumpTo({ center: [curLng, curLat], bearing: curBearing });
+      meMarkerRef.current?.setLngLat([curLng, curLat]);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [autoFollow, mapKey]);
 
   // lockView: блокируем drag/rotation жесты. Cleanup-pattern — гарантирует
   // обратное включение, даже если что-то пойдёт не так с toggle-логикой.
