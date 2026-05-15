@@ -345,7 +345,7 @@ export default function RideScreen({
       style: styleFor(settings.layer),
       center: [target.lng, target.lat],
       zoom: 14,
-      bearing: 0,              // строго на север
+      bearing: ((getLastHeading() ?? 0) + 90) % 360, // прогретый компас + коррекция 90°
       attributionControl: { compact: true },
     });
     mapRef.current = map;
@@ -620,7 +620,7 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        return heading; // компас — стрелка вращается с телефоном
+        return (heading + 90) % 360; // +90°: компас на устройстве смещён на 90° по часовой
     }
   }, [ridePhase, trail, heading]);
 
@@ -655,7 +655,12 @@ export default function RideScreen({
       if (diff < 1) return;
     }
     lastMapBearingRef.current = courseHeading;
-    map.easeTo({ bearing: courseHeading, duration: 200, animate: true });
+    // Первый раз — мгновенно (карта только создана, анимация от 0° выглядит как баг).
+    if (last === null) {
+      map.setBearing(courseHeading);
+    } else {
+      map.easeTo({ bearing: courseHeading, duration: 200, animate: true });
+    }
   }, [courseHeading, autoFollow]);
 
   // При выходе из autoFollow сбрасываем deadzone-cache, чтоб при возврате
