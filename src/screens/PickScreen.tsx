@@ -106,11 +106,13 @@ export default function PickScreen({
     });
 
     map.on('load', () => {
+      map.setBearing(0);
       addVectorSource(map);
       addTargetSource(map);
     });
 
     map.on('styledata', () => {
+      map.setBearing(0);
       addVectorSource(map);
       addTargetSource(map);
     });
@@ -142,7 +144,7 @@ export default function PickScreen({
         </svg>`;
       meArrowRef.current = el.querySelector('svg');
       meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([me.lng, me.lat]).addTo(map);
-      map.flyTo({ center: [me.lng, me.lat], zoom: 15, duration: 800 });
+      map.flyTo({ center: [me.lng, me.lat], zoom: 15, bearing: 0, duration: 800 });
     } else {
       meMarkerRef.current.setLngLat([me.lng, me.lat]);
     }
