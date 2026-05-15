@@ -883,40 +883,27 @@ export default function RideScreen({
     }
   }, [rel, ridePhase, settings.haptics, silenced]);
 
-  // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
-  // Срабатывает когда пользователь ТОЧНО навёлся (±2°) и УДЕРЖИВАЕТ 200ms.
-  // Dwell-time фильтрует быстрое проскакивание через узкую зону при резком
-  // повороте. Сброс при выходе за ±5° гистерезис (2.5× зоны).
+  // ── Голос «Цель впереди» в PRE_RIDE / LONG_STOP — edge-detection БЕЗ dwell.
+  // Сценарий «вожу телефоном туда-сюда»: каждое пересечение вектора (вход в ±2°)
+  // мгновенно даёт голос + haptic. Гистерезис ±5° перезаряжает триггер
+  // (надо выйти за 5° чтобы снова сработало). Как metal detector beep.
   const wasAlignedRef = useRef(false);
-  const alignTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
       wasAlignedRef.current = false;
-      if (alignTimerRef.current) {
-        window.clearTimeout(alignTimerRef.current);
-        alignTimerRef.current = null;
-      }
       return;
     }
     if (!me || silenced || !compassFired) return;
     const aligned = rel < 2 || rel > 358;       // ±2° — снайперское наведение
     const outOfZone = rel > 5 && rel < 355;     // ±5° гистерезис (2.5× зоны)
 
-    if (aligned && !wasAlignedRef.current && alignTimerRef.current === null) {
-      // Только что вошли в зону — запускаем dwell-таймер.
-      alignTimerRef.current = window.setTimeout(() => {
-        alignTimerRef.current = null;
-        wasAlignedRef.current = true;
-        haptic('success', settings.haptics);
-        const phrase =
-          settings.lang === 'ru' ? 'Цель впереди' :
-          settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
-        speak(phrase, settings.lang, settings.voiceURI);
-      }, 200);
-    } else if (!aligned && alignTimerRef.current !== null) {
-      // Вышли из зоны до конца dwell — отменяем таймер.
-      window.clearTimeout(alignTimerRef.current);
-      alignTimerRef.current = null;
+    if (aligned && !wasAlignedRef.current) {
+      wasAlignedRef.current = true;
+      haptic('success', settings.haptics);
+      const phrase =
+        settings.lang === 'ru' ? 'Цель впереди' :
+        settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
+      speak(phrase, settings.lang, settings.voiceURI);
     } else if (outOfZone) {
       wasAlignedRef.current = false;
     }
