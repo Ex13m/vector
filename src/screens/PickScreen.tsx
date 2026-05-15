@@ -25,7 +25,7 @@ import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
 import { haptic } from '../lib/feedback';
-import { needsIosPermission, requestIosPermission } from '../lib/orientation';
+import { startHeading, needsIosPermission, requestIosPermission } from '../lib/orientation';
 import { C, F_DISP, F_MONO } from '../theme';
 
 type Props = {
@@ -85,36 +85,12 @@ export default function PickScreen({
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // Компас с LPF — сглаживаем шум сенсора, обрабатываем wraparound 0/360.
+  // Компас — используем единый startHeading из orientation.ts.
+  // Общий LPF (α=0.5, 16 Hz), приоритет absolute/webkit, shared state
+  // с App.tsx warm-up и RideScreen — одинаковое поведение везде.
   useEffect(() => {
-    let smoothed = NaN;
-    let raf = 0;
-    const handle = (e: DeviceOrientationEvent) => {
-      const ios = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
-      let h: number;
-      if (ios != null && ios >= 0) {
-        h = ios;
-      } else if (e.alpha != null) {
-        h = (360 - e.alpha) % 360;
-      } else return;
-      if (Number.isNaN(smoothed)) {
-        smoothed = h;
-      } else {
-        let diff = h - smoothed;
-        if (diff > 180) diff -= 360;
-        if (diff < -180) diff += 360;
-        smoothed = (smoothed + 0.12 * diff + 360) % 360;
-      }
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setCompassHeading(Math.round(smoothed * 10) / 10));
-    };
-    window.addEventListener('deviceorientationabsolute', handle as EventListener, true);
-    window.addEventListener('deviceorientation', handle as EventListener, true);
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', handle as EventListener, true);
-      window.removeEventListener('deviceorientation', handle as EventListener, true);
-      cancelAnimationFrame(raf);
-    };
+    if (needsIosPermission()) return; // iOS: компас запустится после тапа
+    return startHeading((h) => setCompassHeading(h));
   }, []);
 
   // Карта.

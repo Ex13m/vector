@@ -345,7 +345,7 @@ export default function RideScreen({
       style: styleFor(settings.layer),
       center: [target.lng, target.lat],
       zoom: 14,
-      bearing: ((getLastHeading() ?? 0) + 270) % 360, // прогретый компас + коррекция -90°
+      bearing: getLastHeading() ?? 0, // прогретый компас (warm-up в App.tsx)
       attributionControl: { compact: true },
     });
     mapRef.current = map;
@@ -622,7 +622,7 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        return (heading + 270) % 360; // -90°: компас на устройстве смещён на 90° против часовой
+        return heading; // компас из orientation.ts — без девайс-коррекции
     }
   }, [ridePhase, trail, heading]);
 
@@ -674,7 +674,11 @@ export default function RideScreen({
       curLat += dLat * POS_K;
       curBearing = (curBearing + dB * BEARING_K + 360) % 360;
       map.jumpTo({ center: [curLng, curLat], bearing: curBearing });
-      meMarkerRef.current?.setLngLat([curLng, curLat]);
+      // Маркер «вы» — всегда на реальной GPS-позиции, не на интерполированной.
+      // Камера лерпится плавно, но маркер точен — иначе визуальный рассинхрон
+      // с треком (трек из реальных GPS-точек, маркер из лерпа = хвост отставания).
+      const realPos = camTargetPosRef.current;
+      if (realPos) meMarkerRef.current?.setLngLat([realPos.lng, realPos.lat]);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
