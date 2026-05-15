@@ -345,7 +345,7 @@ export default function RideScreen({
       style: styleFor(settings.layer),
       center: [target.lng, target.lat],
       zoom: 14,
-      bearing: ((getLastHeading() ?? 0) + 90) % 360, // прогретый компас + коррекция 90°
+      bearing: ((getLastHeading() ?? 0) + 270) % 360, // прогретый компас + коррекция -90°
       attributionControl: { compact: true },
     });
     mapRef.current = map;
@@ -620,7 +620,7 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        return (heading + 90) % 360; // +90°: компас на устройстве смещён на 90° по часовой
+        return (heading + 270) % 360; // -90°: компас на устройстве смещён на 90° против часовой
     }
   }, [ridePhase, trail, heading]);
 
