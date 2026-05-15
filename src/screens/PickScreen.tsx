@@ -85,12 +85,23 @@ export default function PickScreen({
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // Компас — используем единый startHeading из orientation.ts.
-  // Общий LPF (α=0.5, 16 Hz), приоритет absolute/webkit, shared state
-  // с App.tsx warm-up и RideScreen — одинаковое поведение везде.
+  // Компас — startHeading из orientation.ts (приоритет absolute, shared state).
+  // Дополнительное сглаживание α=0.15 поверх: на PickScreen компас декоративный,
+  // ему нужна плавность, а не отзывчивость (в отличие от PRE_RIDE наведения).
+  const pickSmoothRef = useRef(NaN);
   useEffect(() => {
-    if (needsIosPermission()) return; // iOS: компас запустится после тапа
-    return startHeading((h) => setCompassHeading(h));
+    if (needsIosPermission()) return;
+    return startHeading((h) => {
+      if (Number.isNaN(pickSmoothRef.current)) {
+        pickSmoothRef.current = h;
+      } else {
+        let d = h - pickSmoothRef.current;
+        if (d > 180) d -= 360;
+        if (d < -180) d += 360;
+        pickSmoothRef.current = ((pickSmoothRef.current + d * 0.15) % 360 + 360) % 360;
+      }
+      setCompassHeading(pickSmoothRef.current);
+    });
   }, []);
 
   // Карта.
@@ -528,7 +539,7 @@ export default function PickScreen({
             width: 28,
             height: 28,
             transform: compassHeading !== null ? `rotate(${-compassHeading}deg)` : undefined,
-            transition: compassHeading !== null ? 'transform 120ms linear' : 'none',
+            transition: compassHeading !== null ? 'transform 200ms ease-out' : 'none',
           }}
         >
           <span style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', fontFamily: F_MONO, fontSize: 9, fontWeight: 700, color: C.target, lineHeight: '10px' }}>N</span>
