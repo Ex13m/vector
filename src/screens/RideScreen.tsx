@@ -619,11 +619,12 @@ export default function RideScreen({
     if (liveSpeedMps > speedMaxRef.current) speedMaxRef.current = liveSpeedMps;
   }, [liveSpeedMps]);
 
-  // ── 4-phase heading.
-  // RIDING: сглаженный вектор ~40м назад по треку
-  // SHORT_STOP: замороженный последний вектор езды
-  // PRE_RIDE / LONG_STOP: компас. Стрелка = ориентация телефона.
-  //   Пользователь вращает телефон → стрелка совпадает с вектором → голос.
+  // ── 4-phase heading. courseHeading = «куда направлен курс» = bearing карты
+  // (course-up навигация: карта вращается, маркер «вы» зафиксирован вверх).
+  //   RIDING:     сглаженный вектор по треку (15 м назад → текущая позиция)
+  //   SHORT_STOP: замороженный последний вектор езды (светофор — карта стоит)
+  //   PRE_RIDE / LONG_STOP: компас — карта вращается по ориентации телефона.
+  //     Пользователь крутит телефон, цель встаёт на 12 → голос «Цель впереди».
   const courseHeading = useMemo(() => {
     switch (ridePhase) {
       case 'RIDING': {
@@ -1378,15 +1379,17 @@ export default function RideScreen({
           fontVariantNumeric: 'tabular-nums',
         }}
       >
-        {/* Левая часть: скорость · пройдено · время  ИЛИ  статус ожидания */}
+        {/* Левая часть: скорость · пройдено · время  ИЛИ  статус наведения.
+            LONG_STOP — тот же режим наведения что PRE_RIDE (компас крутит
+            карту), поэтому подсказка «наведите на цель» показывается в обоих. */}
         <span>
           {ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? (
             <>
-              {ridePhase === 'LONG_STOP'
-                ? '⏸ долгая остановка'
-                : me
-                ? '🧭 наведите телефон на цель'
-                : '⏳ ожидание GPS'}
+              {!me
+                ? '⏳ ожидание GPS'
+                : ridePhase === 'LONG_STOP'
+                ? '⏸ стоянка · наведите на цель'
+                : '🧭 наведите телефон на цель'}
             </>
           ) : (
             <>

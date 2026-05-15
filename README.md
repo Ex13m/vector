@@ -10,13 +10,17 @@
 
 - **3 экрана** из дизайн-хэндоффа: выбор цели → офлайн-кэш карты → поездка.
 - **Реальное** позиционирование (`Geolocation.watchPosition`) и направление (`DeviceOrientationEvent`).
+- **Навигация course-up**: карта вращается по курсу, маркер «вы» зафиксирован вверх (как Google Nav). Курс — из GPS-вектора в движении, из компаса на стоянке.
+- **4-фазная машина состояний** поездки: `PRE_RIDE → RIDING → SHORT_STOP → LONG_STOP`. Фильтрует GPS-джиттер, переключает источник курса (трек / компас) и режим голоса. На стоянках (PRE_RIDE/LONG_STOP) — режим наведения: крутишь телефон, цель встаёт на 12 → голос «Цель впереди».
+- **Компас с 1€-фильтром** (Casiez et al., CHI 2012): адаптивное сглаживание — нет дрожи в покое, нет лага при повороте. Курс камеры идёт на полной частоте (~60 Hz) в обход React — плавное вращение карты.
 - **MapLibre GL** + растровые тайлы OpenStreetMap / Esri Satellite / OpenTopoMap / Waymarked Trails.
-- **Офлайн-кэш карты**: тайлы в IndexedDB через `idb-keyval` + Workbox-кэш в Service Worker.
+- **Офлайн-кэш карты**: тайлы в Cache API + Workbox-кэш в Service Worker.
 - **Голосовое сопровождение**: `SpeechSynthesis` (Web Speech API), интервал и голос настраиваются.
 - **Хаптика** при смене «часа» цели.
+- **Восстановление сессии**: активная поездка переживает закрытие вкладки ОС.
 - **PWA**: устанавливается на главный экран, обновления через тост, оффлайн-загрузка.
-- **Локализация** RU/EN, авто-выбор по `navigator.language`.
-- **Сохранение** избранных точек и поездок в IndexedDB.
+- **Локализация** RU/EN/DE, авто-выбор по `navigator.language`.
+- **Сохранение** избранных точек и журнал поездок в IndexedDB.
 
 ---
 
@@ -101,35 +105,33 @@ EXPOSE 80
 
 ```
 src/
-  App.tsx              — роутер + глобальный state + регистрация SW
+  App.tsx              — роутер экранов + глобальный state + регистрация SW
   main.tsx             — entry, импорт стилей MapLibre
-  styles.css           — токены и сбросы
-  theme.ts             — цвета, шрифты
-  i18n.ts              — словари RU/EN, фукнция t(lang, key, vars)
+  theme.ts             — цвета, шрифты, дизайн-токены
   lib/
-    geo.ts             — bearing, haversine, форматирование
-    geolocation.ts     — обёртка watchPosition
-    orientation.ts     — DeviceOrientation + iOS permission
-    speech.ts          — SpeechSynthesis
-    map.ts             — MapLibre style для слоёв std/sat/topo/tour
-    tiles.ts           — расчёт тайлов для bbox + загрузка в IDB
-  store/
-    settings.ts        — localStorage
-    favorites.ts       — IndexedDB (idb-keyval)
-    trips.ts           — IndexedDB
+    geo.ts             — bearing, haversine, формат дистанции, clock-позиция
+    orientation.ts     — компас: DeviceOrientation + 1€-фильтр + iOS permission
+    rideStateMachine.ts— 4-фазная машина поездки (чистый reducer)
+    tiles.ts           — расчёт тайлов для bbox + загрузка в Cache API
+    mapStyles.ts       — MapLibre style для слоёв std/sat/topo/tour
+    geocoder.ts        — поиск адресов/POI (Nominatim) с location-bias
+    voice.ts           — SpeechSynthesis: фразы, голоса, языки
+    feedback.ts        — хаптика (Vibration API)
+    wakeAudio.ts       — фоновый аудио-трюк против засыпания вкладки
+    storage.ts         — IndexedDB (idb-keyval): избранное, журнал поездок
+    constants.ts       — пороги, лимиты, дефолты
+    geoMock.ts         — DEV-симуляция GPS-трека
   components/
-    ClockDial.tsx      — мини-циферблат (top-right)
-    BigClockDial.tsx   — fullscreen peek (long-press)
-    BottomHud.tsx      — нижняя панель с TO TARGET / O'CLOCK / ETA
-    StatusPill.tsx     — LIVE / PAUSED / NO SIGNAL
-    LayerPicker.tsx    — поповер выбора слоя карты
+    MiniDial.tsx       — мини-циферблат (стрелка на цель)
+    BigDial.tsx        — fullscreen peek циферблата (long-press)
     SettingsSheet.tsx  — bottom-sheet настроек
     UpdateToast.tsx    — тост обновления PWA
     InstallPrompt.tsx  — баннер «Установить» (с iOS-fallback)
+    DevBar.tsx         — DEV-панель (tree-shaken в проде)
   screens/
-    PickScreen.tsx     — карта, тап = цель, избранное, ⊕ найти меня
-    CacheScreen.tsx    — bbox + slider детализации, прогресс кэширования
-    RideScreen.tsx     — главный экран с GPS/ориентацией/голосом
+    PickScreen.tsx     — карта, тап = цель, поиск, избранное, журнал поездок
+    CacheScreen.tsx    — bbox + адаптивный зум, прогресс кэширования
+    RideScreen.tsx     — главный экран: GPS, компас, голос, машина состояний
 prototype/             — оригинальный HTML-прототип из дизайн-хэндоффа
 public/                — иконки PWA
 ```
@@ -144,9 +146,8 @@ public/                — иконки PWA
 
 ## Что дальше
 
-- **Поиск адреса** в PickScreen (Nominatim).
 - **Векторные тайлы** (PMTiles) вместо растровых — компактнее в офлайне.
-- **История поездок** как отдельный экран.
+- **Подсказка калибровки компаса** при низкой точности магнитометра.
 - **Capacitor** для упаковки в `.ipa` / `.apk` если потребуется выход в сторы.
 
 ---
