@@ -313,6 +313,27 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, []);
 
+  // Зеркало ridePhase в ref — compass rawHandler (полная частота, вне React)
+  // читает фазу, чтобы писать bearing камеры из компаса только в компас-фазах.
+  const ridePhaseRef = useRef(ridePhase);
+  ridePhaseRef.current = ridePhase;
+
+  // Подписка на компас: throttled-handler → React-state (HUD, голос);
+  // rawHandler (полная частота ~60 Hz) → bearing камеры напрямую в ref,
+  // в обход React — карта вращается плавно 60 fps без ступенек 16 Hz.
+  const beginHeading = useCallback(() => {
+    return startHeading(
+      (h) => {
+        setCompassFired(true);
+        setHeading(h);
+      },
+      (h) => {
+        const ph = ridePhaseRef.current;
+        if (ph === 'PRE_RIDE' || ph === 'LONG_STOP') camTargetBearingRef.current = h;
+      },
+    );
+  }, []);
+
   // ── iOS heading permission.
   // Один callback-объект: setCompassFired — стабильная setState-функция, можно
   // использовать в closure без включения в deps-массив.
@@ -320,21 +341,14 @@ export default function RideScreen({
     if (needsIosPermission()) {
       setNeedPerm(true);
     } else {
-      const stop = startHeading((h) => {
-        setCompassFired(true);
-        setHeading(h);
-      });
-      return stop;
+      return beginHeading();
     }
-  }, []);
+  }, [beginHeading]);
 
   async function grantHeading() {
     const ok = await requestIosPermission();
     setNeedPerm(false);
-    if (ok) startHeading((h) => {
-      setCompassFired(true);
-      setHeading(h);
-    });
+    if (ok) beginHeading();
   }
 
   // ── Карта.
@@ -658,8 +672,12 @@ export default function RideScreen({
     if (me) camTargetPosRef.current = { lng: me.lng, lat: me.lat };
   }, [me]);
   useEffect(() => {
+    // В PRE_RIDE/LONG_STOP bearing камеры пишет compass rawHandler на полной
+    // частоте (~60 Hz). Здесь — только трек-фазы: иначе 16 Hz перезапись из
+    // courseHeading давала бы микро-рывок поверх плавного 60 Hz потока.
+    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     camTargetBearingRef.current = courseHeading;
-  }, [courseHeading]);
+  }, [courseHeading, ridePhase]);
   useEffect(() => {
     bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 1.0 : 0.18;
   }, [ridePhase]);

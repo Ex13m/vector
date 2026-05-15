@@ -111,10 +111,16 @@ function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Подписка на компас. 1€-фильтр работает на ПОЛНОЙ частоте событий (~60 Hz),
- * а handler вызывается с throttle 16 Hz — отзывчиво, без re-render-шторма.
+ * Подписка на компас. 1€-фильтр работает на ПОЛНОЙ частоте событий (~60 Hz).
+ *
+ * Два канала вывода:
+ *  • handler    — throttle 16 Hz, для React-state (HUD, голос). Полная частота
+ *                 здесь дала бы re-render-шторм RideScreen.
+ *  • rawHandler — ПОЛНАЯ частота (~60 Hz), для камеры карты. Пишет в ref,
+ *                 React не трогает → карта вращается плавно 60 fps без
+ *                 ступенек 16 Hz и без лага (лерп не нужен).
  */
-export function startHeading(handler: HeadingHandler): () => void {
+export function startHeading(handler: HeadingHandler, rawHandler?: HeadingHandler): () => void {
   const MIN_INTERVAL_MS = 60; // emit ≤16 Hz
 
   let lastEmitAt = 0;
@@ -154,7 +160,10 @@ export function startHeading(handler: HeadingHandler): () => void {
     const smoothed = oneEuroStep(euro, heading, t);
     _sharedSmoothed = smoothed;
 
-    // Emit — time-throttle 16 Hz. Фильтр уже сделал всё сглаживание.
+    // Полная частота → камера карты (ref, без React-рендера).
+    rawHandler?.(smoothed);
+
+    // Emit в React — time-throttle 16 Hz. Фильтр уже сделал всё сглаживание.
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
     lastEmitAt = now;
