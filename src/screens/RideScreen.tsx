@@ -620,7 +620,7 @@ export default function RideScreen({
       case 'PRE_RIDE':
       case 'LONG_STOP':
       default:
-        return heading; // всегда компас — стрелка вращается с телефоном
+        return (heading + 180) % 360; // +180°: компас на Android даёт инвертированный курс
     }
   }, [ridePhase, trail, heading]);
 
