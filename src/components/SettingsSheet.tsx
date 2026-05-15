@@ -158,6 +158,20 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             </select>
           </Section>
         )}
+
+        {/* Версия — чтобы сверять, какой билд сейчас загружен */}
+        <div
+          style={{
+            fontFamily: F_MONO,
+            fontSize: 11,
+            color: C.inkDim,
+            letterSpacing: '0.08em',
+            textAlign: 'center',
+            marginTop: 4,
+          }}
+        >
+          Vector v{__APP_VERSION__}
+        </div>
       </div>
     </div>
   );
