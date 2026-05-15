@@ -95,8 +95,6 @@ export default function PickScreen({
       bearing: 0,
       attributionControl: { compact: true },
     });
-    map.dragRotate.disable();
-    map.touchZoomRotate.disableRotation();
     mapRef.current = map;
 
     map.on('click', (e) => {
