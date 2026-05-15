@@ -233,22 +233,20 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const sizeBytes = bytesEstimate(total);
   const tooBig = total > MAX_TILES;
 
-  // Auto-skip: один раз проверим, есть ли все нужные тайлы в кэше.
-  // Если всё уже есть — показываем тост «✓ Уже в кэше» 1.5 сек, потом идём дальше.
+  // Проверяем: уже все тайлы в кэше? Показываем dialog с кнопкой «Поехали»
+  // вместо auto-skip — пользователь сам подтверждает (раньше 1.5s toast
+  // проскакивал слишком быстро, экран мелькал).
   useEffect(() => {
     if (checkedAutoSkip) return;
-    if (!me) return; // подождём fit
+    if (!me) return;
     setCheckedAutoSkip(true);
     void allTilesCached(settings.layer, tilesPlanned.slice(0, 200)).then((allHave) => {
       if (allHave && tilesPlanned.length <= 200) {
         setAlreadyCachedToast(true);
-        setTimeout(() => {
-          setAlreadyCachedToast(false);
-          onDone();
-        }, 1500);
+        haptic('light', settings.haptics);
       }
     });
-  }, [checkedAutoSkip, me, settings.layer, tilesPlanned, onDone]);
+  }, [checkedAutoSkip, me, settings.layer, tilesPlanned, settings.haptics]);
 
   async function start() {
     if (tooBig) return;
@@ -280,33 +278,78 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
 
-      {/* Already-cached toast */}
+      {/* Already-cached dialog — требует тап пользователя, не auto-skip */}
       {alreadyCachedToast && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(11,13,12,0.96)',
-            backdropFilter: 'blur(14px)',
-            border: `1px solid ${C.ok}`,
-            borderRadius: 14,
-            padding: '18px 28px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 8,
-            zIndex: 20,
-            animation: 'fadeIn 200ms ease',
-          }}
-        >
-          <span style={{ fontSize: 32 }}>✓</span>
-          <div style={{ fontFamily: F_DISP, fontSize: 15, fontWeight: 700, color: C.ok }}>Тайлы в кэше</div>
-          <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, letterSpacing: '0.12em' }}>
-            ЗАГРУЗКА НЕ НУЖНА
+        <>
+          {/* Dim backdrop чтоб карта не отвлекала */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(8,10,9,0.55)',
+              backdropFilter: 'blur(4px)',
+              zIndex: 19,
+              animation: 'fadeIn 200ms ease',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(11,13,12,0.96)',
+              backdropFilter: 'blur(14px)',
+              border: `1px solid ${C.ok}`,
+              borderRadius: 14,
+              padding: '22px 28px 18px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 10,
+              zIndex: 20,
+              animation: 'fadeIn 220ms ease',
+              minWidth: 220,
+            }}
+          >
+            <span style={{ fontSize: 36, lineHeight: 1, color: C.ok }}>✓</span>
+            <div style={{ fontFamily: F_DISP, fontSize: 16, fontWeight: 700, color: C.ok }}>Тайлы уже в кэше</div>
+            <div
+              style={{
+                fontFamily: F_MONO,
+                fontSize: 10,
+                color: C.inkDim,
+                letterSpacing: '0.12em',
+                marginBottom: 6,
+              }}
+            >
+              ЗАГРУЗКА НЕ НУЖНА
+            </div>
+            <button
+              onClick={() => {
+                haptic('medium', settings.haptics);
+                setAlreadyCachedToast(false);
+                onDone();
+              }}
+              style={{
+                marginTop: 4,
+                minWidth: 180,
+                height: 44,
+                background: C.ok,
+                color: C.bg,
+                border: 'none',
+                borderRadius: 10,
+                fontFamily: F_DISP,
+                fontSize: 14,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                boxShadow: `0 4px 14px rgba(0,0,0,0.4),0 0 12px ${C.okGlow}`,
+              }}
+            >
+              Поехали →
+            </button>
           </div>
-        </div>
+        </>
       )}
 
       {/* Top card */}
