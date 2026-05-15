@@ -25,6 +25,7 @@ import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
 import { haptic } from '../lib/feedback';
+import { needsIosPermission, requestIosPermission } from '../lib/orientation';
 import { C, F_DISP, F_MONO } from '../theme';
 
 type Props = {
@@ -56,6 +57,7 @@ export default function PickScreen({
   const distancePillRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
+  const [compassHeading, setCompassHeading] = useState<number | null>(null);
   const [target, setTarget] = useState<LatLng | null>(null);
   const [targetName, setTargetName] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -81,6 +83,26 @@ export default function PickScreen({
       { enableHighAccuracy: true, maximumAge: 5000 },
     );
     return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
+  // Компас.
+  useEffect(() => {
+    const handle = (e: DeviceOrientationEvent) => {
+      const ios = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
+      let h: number;
+      if (ios != null && ios >= 0) {
+        h = ios;
+      } else if (e.alpha != null) {
+        h = (360 - e.alpha) % 360;
+      } else return;
+      setCompassHeading(h);
+    };
+    window.addEventListener('deviceorientationabsolute', handle as EventListener, true);
+    window.addEventListener('deviceorientation', handle as EventListener, true);
+    return () => {
+      window.removeEventListener('deviceorientationabsolute', handle as EventListener, true);
+      window.removeEventListener('deviceorientation', handle as EventListener, true);
+    };
   }, []);
 
   // Карта.
@@ -489,6 +511,43 @@ export default function PickScreen({
         >
           ★
         </IconButton>
+      </div>
+
+      {/* Мини-компас */}
+      <div
+        onClick={async () => { if (needsIosPermission()) await requestIosPermission(); }}
+        style={{
+          position: 'absolute',
+          top: 62,
+          right: 12,
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          background: 'rgba(17,20,19,0.85)',
+          backdropFilter: 'blur(10px)',
+          border: `1px solid ${C.line2}`,
+          zIndex: 5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          cursor: 'pointer',
+        }}
+      >
+        <div
+          style={{
+            position: 'relative',
+            width: 28,
+            height: 28,
+            transform: compassHeading !== null ? `rotate(${-compassHeading}deg)` : undefined,
+            transition: compassHeading !== null ? 'transform 120ms linear' : 'none',
+          }}
+        >
+          <span style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', fontFamily: F_MONO, fontSize: 9, fontWeight: 700, color: C.target, lineHeight: '10px' }}>N</span>
+          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', width: 3, height: 8, background: C.target, borderRadius: '2px 2px 0 0' }} />
+          <div style={{ position: 'absolute', top: 18, left: '50%', transform: 'translate(-50%,-50%)', width: 5, height: 5, borderRadius: '50%', background: 'rgba(17,20,19,0.9)', border: `1px solid ${C.line2}` }} />
+          <div style={{ position: 'absolute', top: 21, left: '50%', transform: 'translateX(-50%)', width: 3, height: 7, background: C.inkDim, borderRadius: '0 0 2px 2px' }} />
+        </div>
       </div>
 
       {/* Settings (внизу слева, не в спеке — но нужен доступ) */}
