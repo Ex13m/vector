@@ -863,7 +863,7 @@ export default function RideScreen({
     lastClockRef.current = clockNum;
   }, [clockNum, settings.haptics, ridePhase]);
 
-  // ── Chime «цель на 12» — те же ±5° trigger + ±15° hysteresis что и у голоса
+  // ── Chime «цель на 12» — те же ±2° trigger + ±5° hysteresis что и у голоса
   // в PRE_RIDE/LONG_STOP. Без dwell — в движении быстрый звук-отзыв уместнее
   // чем ожидание 200ms. Гистерезис предотвращает спам у границы зоны.
   const wasOnTargetRef = useRef(false);
@@ -872,8 +872,8 @@ export default function RideScreen({
       wasOnTargetRef.current = false;
       return;
     }
-    const onTarget = rel < 5 || rel > 355;
-    const offTarget = rel > 15 && rel < 345;  // ±15° hysteresis
+    const onTarget = rel < 2 || rel > 358;
+    const offTarget = rel > 5 && rel < 355;  // ±5° hysteresis (2.5× trigger)
     if (onTarget && !wasOnTargetRef.current) {
       wasOnTargetRef.current = true;
       haptic('success', settings.haptics);
@@ -884,11 +884,9 @@ export default function RideScreen({
   }, [rel, ridePhase, settings.haptics, silenced]);
 
   // ── Голос «Цель впереди» в режиме наведения (PRE_RIDE / LONG_STOP).
-  // Срабатывает когда пользователь ТОЧНО навёлся (±5°) и УДЕРЖИВАЕТ 200ms.
-  // Dwell-time фильтрует:
-  //   • compass jitter (filter convergence ripple вокруг истинного значения)
-  //   • быстрое проскакивание через узкую зону при резком повороте
-  // Сбрасывается при выходе за ±30° (гистерезис).
+  // Срабатывает когда пользователь ТОЧНО навёлся (±2°) и УДЕРЖИВАЕТ 200ms.
+  // Dwell-time фильтрует быстрое проскакивание через узкую зону при резком
+  // повороте. Сброс при выходе за ±5° гистерезис (2.5× зоны).
   const wasAlignedRef = useRef(false);
   const alignTimerRef = useRef<number | null>(null);
   useEffect(() => {
@@ -901,8 +899,8 @@ export default function RideScreen({
       return;
     }
     if (!me || silenced || !compassFired) return;
-    const aligned = rel < 5 || rel > 355;       // ±5° — точное наведение
-    const outOfZone = rel > 15 && rel < 345;    // гистерезис: сброс после ±15° (3× зоны)
+    const aligned = rel < 2 || rel > 358;       // ±2° — снайперское наведение
+    const outOfZone = rel > 5 && rel < 355;     // ±5° гистерезис (2.5× зоны)
 
     if (aligned && !wasAlignedRef.current && alignTimerRef.current === null) {
       // Только что вошли в зону — запускаем dwell-таймер.
@@ -1512,7 +1510,7 @@ function TargetingHud({
   rel: number;
   mePresent: boolean;
 }) {
-  const aligned = rel < 5 || rel > 355;   // ±5° — синхронно с голосовым триггером
+  const aligned = rel < 2 || rel > 358;   // ±2° — синхронно с голосовым триггером
   const turnRight = !aligned && rel <= 180;
 
   return (
