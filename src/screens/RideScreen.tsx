@@ -641,16 +641,18 @@ export default function RideScreen({
   // Один цикл владеет камерой — нет конфликта jumpTo/easeTo между эффектами.
   //
   // BEARING_K различается по фазе:
-  //   PRE_RIDE / LONG_STOP (компас): 0.5 — 1€-фильтр в orientation.ts уже
-  //     выдаёт чистый сигнал без лага; rAF здесь лишь интерполирует
-  //     16 Hz emit → 60 fps кадры, поэтому K высокий (тугое слежение).
-  //   RIDING / SHORT_STOP (трек): 0.18 — плавность, трек-bearing дёргается.
+  //   PRE_RIDE / LONG_STOP (компас): 1.0 — bearing ставится НАПРЯМУЮ, без лерпа.
+  //     Так было в первых map-rotation сборках (v0.5.13: jumpTo bearing=courseHeading)
+  //     и так работало точно. v0.5.18 навесил лерп на bearing вместе с позицией —
+  //     он нужен только позиции (GPS 1 Hz, дёргается), а bearing идёт 16 Hz уже
+  //     сглаженным 1€-фильтром. Лерп лишь добавлял лаг → карта «не синхронна».
+  //   RIDING / SHORT_STOP (трек): 0.18 — плавность, трек-bearing идёт 1 Hz, дёргается.
   const camTargetPosRef = useRef<{ lng: number; lat: number } | null>(
     me ? { lng: me.lng, lat: me.lat } : null,
   );
   const camTargetBearingRef = useRef(courseHeading);
   const bearingKRef = useRef(
-    ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.5 : 0.18,
+    ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 1.0 : 0.18,
   );
   useEffect(() => {
     if (me) camTargetPosRef.current = { lng: me.lng, lat: me.lat };
@@ -659,7 +661,7 @@ export default function RideScreen({
     camTargetBearingRef.current = courseHeading;
   }, [courseHeading]);
   useEffect(() => {
-    bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.5 : 0.18;
+    bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 1.0 : 0.18;
   }, [ridePhase]);
 
   useEffect(() => {
