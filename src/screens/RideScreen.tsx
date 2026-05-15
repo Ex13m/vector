@@ -641,15 +641,16 @@ export default function RideScreen({
   // Один цикл владеет камерой — нет конфликта jumpTo/easeTo между эффектами.
   //
   // BEARING_K различается по фазе:
-  //   PRE_RIDE / LONG_STOP (компас): 0.35 — отзывчивость, чтобы карта
-  //     точно следовала за поворотом телефона без заметной задержки.
+  //   PRE_RIDE / LONG_STOP (компас): 0.5 — 1€-фильтр в orientation.ts уже
+  //     выдаёт чистый сигнал без лага; rAF здесь лишь интерполирует
+  //     16 Hz emit → 60 fps кадры, поэтому K высокий (тугое слежение).
   //   RIDING / SHORT_STOP (трек): 0.18 — плавность, трек-bearing дёргается.
   const camTargetPosRef = useRef<{ lng: number; lat: number } | null>(
     me ? { lng: me.lng, lat: me.lat } : null,
   );
   const camTargetBearingRef = useRef(courseHeading);
   const bearingKRef = useRef(
-    ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.35 : 0.18,
+    ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.5 : 0.18,
   );
   useEffect(() => {
     if (me) camTargetPosRef.current = { lng: me.lng, lat: me.lat };
@@ -658,7 +659,7 @@ export default function RideScreen({
     camTargetBearingRef.current = courseHeading;
   }, [courseHeading]);
   useEffect(() => {
-    bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.35 : 0.18;
+    bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.5 : 0.18;
   }, [ridePhase]);
 
   useEffect(() => {

@@ -85,26 +85,26 @@ export default function PickScreen({
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // Компас — startHeading из orientation.ts (приоритет absolute, shared state).
-  // Дополнительное сглаживание α=0.15 поверх: на PickScreen компас декоративный,
-  // ему нужна плавность, а не отзывчивость (в отличие от PRE_RIDE наведения).
-  // Аккумулятор непрерывного угла: CSS rotate не умеет shortest-path через 0°/360°,
-  // без него при переходе через север стрелка делает оборот 350° вместо 10°.
-  const pickSmoothRef = useRef(NaN);
+  // Компас — startHeading из orientation.ts. Сглаживание уже сделано
+  // 1€-фильтром внутри startHeading; здесь только аккумулятор непрерывного
+  // угла: CSS rotate не умеет shortest-path через 0°/360°, без него при
+  // переходе через север стрелка делает оборот 350° вместо 10°.
+  // CSS transition 200 ms ease-out визуально сглаживает 16 Hz emit.
+  const compassPrevRef = useRef(NaN);
   const compassAccumRef = useRef(0);
   useEffect(() => {
     if (needsIosPermission()) return;
     return startHeading((h) => {
-      if (Number.isNaN(pickSmoothRef.current)) {
-        pickSmoothRef.current = h;
+      if (Number.isNaN(compassPrevRef.current)) {
+        compassPrevRef.current = h;
         compassAccumRef.current = -h;
       } else {
-        let d = h - pickSmoothRef.current;
+        let d = h - compassPrevRef.current;
         if (d > 180) d -= 360;
         if (d < -180) d += 360;
-        pickSmoothRef.current = ((pickSmoothRef.current + d * 0.15) % 360 + 360) % 360;
+        compassPrevRef.current = h;
         // Аккумулятор: shortest-path delta, CSS крутит кратчайшим путём
-        compassAccumRef.current += -d * 0.15;
+        compassAccumRef.current += -d;
       }
       setCompassHeading(compassAccumRef.current);
     });

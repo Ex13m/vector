@@ -25,8 +25,9 @@ export async function requestIosPermission(): Promise<boolean> {
   }
 }
 
-// Разделяемое состояние LPF: прогрев в App.tsx накапливает значение,
-// RideScreen стартует с уже сглаженного показания — нет скачка в 0°.
+// Разделяемое состояние: warm-up в App.tsx будит магнитометр и оставляет
+// последнее показание; RideScreen стартует с него — карта-конструктор
+// получает прогретый bearing, нет скачка ориентации от 0°.
 let _sharedSmoothed = NaN;
 
 /** Последнее сглаженное значение компаса (NaN если событий ещё не было). */
@@ -34,19 +35,95 @@ export function getLastHeading(): number | null {
   return Number.isNaN(_sharedSmoothed) ? null : _sharedSmoothed;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 1€ filter (Casiez, Roussel, Vogel — «1€ Filter», CHI 2012).
+//
+// Адаптивный low-pass: cutoff-частота растёт со скоростью сигнала.
+//   • стоишь, целишься в цель → скорость ≈0 → низкий cutoff → дрожь убрана
+//   • быстро повернул телефон    → высокая скорость → высокий cutoff → нет лага
+//
+// Фиксированный α (старый LPF) заставлял выбирать одно из двух — «или
+// дрожит на месте, или отстаёт при повороте». 1€ снимает компромисс:
+// карта стоит как влитая при прицеливании и мгновенно следует за рукой.
+//
+// Параметры подбираются на устройстве; разумные старты для компаса ниже.
+// MIN_CUTOFF меньше → глаже в покое, но больше лаг покоя (для прицела не важен).
+// BETA больше → агрессивнее открывается на вращении (меньше лаг, риск дёрготни).
+const ONE_EURO_MIN_CUTOFF = 1.0; // Гц
+const ONE_EURO_BETA = 0.5;
+const ONE_EURO_D_CUTOFF = 1.0;   // Гц — сглаживание производной (стандарт из статьи)
+
+/** Коэффициент экспоненциального low-pass для данной частоты и cutoff. */
+function lowpassAlpha(rateHz: number, cutoffHz: number): number {
+  const tau = 1 / (2 * Math.PI * cutoffHz);
+  const te = 1 / rateHz;
+  return 1 / (1 + tau / te);
+}
+
+/** Кратчайшая дуга a−b в диапазоне [-180, 180]. */
+function angleDelta(a: number, b: number): number {
+  let d = (a - b) % 360;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return d;
+}
+
+type OneEuroState = {
+  smoothed: number; // отфильтрованный угол [0, 360)
+  dx: number;       // отфильтрованная угловая скорость, °/с
+  rawPrev: number;  // прошлый сырой угол
+  tPrev: number;    // прошлый timestamp события, мс
+  init: boolean;
+};
+
 /**
- * Подписка на компас. Throttle только по времени (16 Hz). Дельта-гейт
- * НЕ используем: LPF сходится экспоненциально, и любой гейт >0° обрезает
- * хвост сходимости — стрелка застревает в 0.5°–1° от истинного значения
- * («не докручивает»). CSS transition визуально сглаживает 16 Hz эмиты.
+ * Один шаг 1€-фильтра для кругового угла (компас).
+ * Производная и сам угол считаются по кратчайшей дуге — корректно через 0°/360°.
+ */
+function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
+  if (!s.init) {
+    s.smoothed = raw;
+    s.rawPrev = raw;
+    s.tPrev = tMs;
+    s.dx = 0;
+    s.init = true;
+    return raw;
+  }
+  let dt = (tMs - s.tPrev) / 1000; // c
+  if (!(dt > 0) || dt > 1) dt = 1 / 60; // защита от кривых/просроченных timestamp
+  const rate = 1 / dt;
+
+  // Производная (°/с) по кратчайшей дуге, затем её low-pass с фикс. cutoff —
+  // сырая производная сама зашумлена, без сглаживания cutoff дёргался бы.
+  const rawDx = angleDelta(raw, s.rawPrev) * rate;
+  const aD = lowpassAlpha(rate, ONE_EURO_D_CUTOFF);
+  s.dx = s.dx + aD * (rawDx - s.dx);
+
+  // Адаптивный cutoff: чем быстрее вращение — тем прозрачнее фильтр.
+  const cutoff = ONE_EURO_MIN_CUTOFF + ONE_EURO_BETA * Math.abs(s.dx);
+  const a = lowpassAlpha(rate, cutoff);
+  s.smoothed = ((s.smoothed + a * angleDelta(raw, s.smoothed)) % 360 + 360) % 360;
+
+  s.rawPrev = raw;
+  s.tPrev = tMs;
+  return s.smoothed;
+}
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Подписка на компас. 1€-фильтр работает на ПОЛНОЙ частоте событий (~60 Hz),
+ * а handler вызывается с throttle 16 Hz — отзывчиво, без re-render-шторма.
  */
 export function startHeading(handler: HeadingHandler): () => void {
-  const MIN_INTERVAL_MS = 60;  // emit ≤16 Hz — отзывчивый компас, без re-render-шторма
+  const MIN_INTERVAL_MS = 60; // emit ≤16 Hz
 
   let lastEmitAt = 0;
-  // Наследуем разделяемое состояние LPF: если прогрев уже шёл — не стартуем с NaN.
-  let smoothed = _sharedSmoothed;
-  let hasAbsolute = false;     // true once absolute/webkit event fires
+  let hasAbsolute = false; // true once absolute/webkit event fires
+
+  // Состояние 1€ — локальное на подписку. init=false: первое событие
+  // защёлкивает фильтр на текущий курс (мгновенная истина без скачка от 0°).
+  // Прогрев в App.tsx живёт в _sharedSmoothed отдельно — для карты-конструктора.
+  const euro: OneEuroState = { smoothed: NaN, dx: 0, rawPrev: NaN, tPrev: 0, init: false };
 
   // Общая обработка: isAbsoluteEvent = true для deviceorientationabsolute
   // (абсолютен по определению, НЕ полагаемся на e.absolute флаг — он
@@ -56,12 +133,13 @@ export function startHeading(handler: HeadingHandler): () => void {
     let heading: number | null = null;
 
     if (typeof anyE.webkitCompassHeading === 'number') {
-      // iOS Safari: истинный компасный heading.
+      // iOS Safari: истинный компасный heading (tilt-compensated самим iOS).
       heading = anyE.webkitCompassHeading;
       hasAbsolute = true;
     } else if (isAbsoluteEvent && e.alpha !== null) {
-      // deviceorientationabsolute — абсолютен по имени события,
-      // не проверяем e.absolute (он ненадёжен).
+      // deviceorientationabsolute — абсолютен по имени события.
+      // (360−alpha) — heading верхней грани телефона: математически точен
+      // при любом наклоне вперёд/крене (проверено через матрицу поворота).
       heading = (360 - (e.alpha as number)) % 360;
       hasAbsolute = true;
     } else if (!hasAbsolute && !isAbsoluteEvent && e.alpha !== null) {
@@ -71,22 +149,12 @@ export function startHeading(handler: HeadingHandler): () => void {
     }
     if (heading === null || Number.isNaN(heading)) return;
 
-    // ── Low-pass filter (circular): убирает шум магнитометра.
-    // α=0.5 — компромисс: убирает дрожь, но без заметного лага
-    // при ручном вращении телефона (PRE_RIDE compass mode).
-    if (Number.isNaN(smoothed)) {
-      smoothed = heading;
-      _sharedSmoothed = smoothed;
-    } else {
-      let diff = heading - smoothed;
-      if (diff > 180) diff -= 360;
-      if (diff < -180) diff += 360;
-      smoothed = ((smoothed + diff * 0.5) % 360 + 360) % 360;
-    }
+    // 1€-фильтр на полной частоте событий.
+    const t = e.timeStamp || performance.now();
+    const smoothed = oneEuroStep(euro, heading, t);
     _sharedSmoothed = smoothed;
 
-    // ── Emit: только time-throttle. Filter сам отсекает шум, гейт по дельте
-    // обрезал бы хвост сходимости (стрелка не докручивает на 0.5°–1°).
+    // Emit — time-throttle 16 Hz. Фильтр уже сделал всё сглаживание.
     const now = Date.now();
     if (now - lastEmitAt < MIN_INTERVAL_MS) return;
     lastEmitAt = now;
