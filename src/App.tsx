@@ -13,6 +13,7 @@ import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
+import { startHeading } from './lib/orientation';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
   ? lazy(() => import('./components/DevBar'))
@@ -108,6 +109,16 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = settings.lang;
   }, [settings.lang]);
+
+  // ── Прогрев компаса. Подписываемся на курс как только выбрана цель —
+  // это будит магнитометр, и пока пользователь на экране кэширования он
+  // успевает откалиброваться. К старту PRE_RIDE компас уже тёплый, и
+  // course-up карта ориентируется верно с первого кадра. Холодный
+  // магнитометр на старте раньше давал кривую ориентацию.
+  useEffect(() => {
+    if (!target) return;
+    return startHeading(() => {});
+  }, [target]);
 
   const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
     resumeWakeAudio(); // внутри жеста «Старт →» — запускаем фоновый аудио
