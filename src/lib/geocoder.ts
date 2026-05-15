@@ -74,11 +74,13 @@ export async function searchPlace(query: string, opts: SearchOptions = {}): Prom
   // dedupe=0: показать все филиалы сетевых магазинов (Макро, Сільпо, АТБ…),
   // а не схлопывать одноимённые в один результат.
   url.searchParams.set('dedupe', '0');
-  // Location bias: viewbox 50km вокруг позиции, bounded=0 (prefer but not limit)
+  // Location bias: viewbox ~100km вокруг позиции, bounded=1 — только результаты
+  // внутри региона. bounded=0 («prefer») давало результаты из других стран когда
+  // Nominatim считал их релевантнее (например школа в другом городе с похожим именем).
   if (opts.near) {
-    const d = 0.45; // ~50km в градусах
+    const d = 0.9; // ~100km в градусах — шире чтобы не резать пригороды
     url.searchParams.set('viewbox', `${opts.near.lng - d},${opts.near.lat + d},${opts.near.lng + d},${opts.near.lat - d}`);
-    url.searchParams.set('bounded', '0');
+    url.searchParams.set('bounded', '1');
   }
   try {
     const res = await fetch(url.toString(), { headers: { 'Accept-Language': ACCEPT_LANG }, signal: opts.signal });
