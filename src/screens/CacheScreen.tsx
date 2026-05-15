@@ -52,7 +52,6 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [hintHidden, setHintHidden] = useState(false);
   const [alreadyCachedToast, setAlreadyCachedToast] = useState(false);
-  const [checkedAutoSkip, setCheckedAutoSkip] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // GPS — для маркера «вы».
@@ -233,24 +232,32 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   const sizeBytes = bytesEstimate(total);
   const tooBig = total > MAX_TILES;
 
-  // Auto-skip: один раз проверим, есть ли все нужные тайлы в кэше.
-  // Если всё уже есть — показываем тост «✓ Уже в кэше» 10 сек, потом идём
-  // дальше. 10 с (а не 1.5) — чтобы экран не мелькал и можно было успеть
-  // осмотреться / при желании всё же выбрать область вручную.
+  // Auto-skip: один раз, после того как карта устаканилась (GPS + fitBounds),
+  // проверяем равномерную выборку из ПОЛНОГО набора тайлов. Если вся область
+  // уже в кэше — показываем модалку «Тайлы в кэше» 10 сек, потом авто-переход.
+  // Раньше проверялись только первые 200 тайлов с условием total ≤ 200 — для
+  // реального маршрута (>200 тайлов) модалка не появлялась никогда.
+  const autoSkipRef = useRef(false);
+  const tilesPlannedRef = useRef(tilesPlanned);
+  tilesPlannedRef.current = tilesPlanned;
   useEffect(() => {
-    if (checkedAutoSkip) return;
-    if (!me) return; // подождём fit
-    setCheckedAutoSkip(true);
-    void allTilesCached(settings.layer, tilesPlanned.slice(0, 200)).then((allHave) => {
-      if (allHave && tilesPlanned.length <= 200) {
+    if (autoSkipRef.current || !me) return;
+    autoSkipRef.current = true;
+    // Даём fitBounds + пересчёт tilesPlanned устаканиться, затем проверяем кэш.
+    const t = setTimeout(() => {
+      const planned = tilesPlannedRef.current;
+      if (planned.length === 0) return;
+      void allTilesCached(settings.layer, sampleTiles(planned, 200)).then((allHave) => {
+        if (!allHave) return;
         setAlreadyCachedToast(true);
         setTimeout(() => {
           setAlreadyCachedToast(false);
           onDone();
         }, 10000);
-      }
-    });
-  }, [checkedAutoSkip, me, settings.layer, tilesPlanned, onDone]);
+      });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [me, settings.layer, onDone]);
 
   async function start() {
     if (tooBig) return;
@@ -565,6 +572,16 @@ function tileUrlVariants(layer: Parameters<typeof tileUrl>[0], z: number, x: num
   const m = base.match(/^https:\/\/([abc])\.([^/]+)/);
   if (!m) return [base];
   return ['a', 'b', 'c'].map((s) => base.replace(/^https:\/\/[abc]\./, `https://${s}.`));
+}
+
+// Равномерная выборка до `max` тайлов из полного набора — быстрая проверка
+// «вся ли область в кэше» без чтения тысяч записей Cache API.
+function sampleTiles(tiles: TilePoint[], max: number): TilePoint[] {
+  if (tiles.length <= max) return tiles;
+  const out: TilePoint[] = [];
+  const step = tiles.length / max;
+  for (let i = 0; i < max; i++) out.push(tiles[Math.floor(i * step)]);
+  return out;
 }
 
 async function allTilesCached(layer: Parameters<typeof tileUrl>[0], probe: TilePoint[]): Promise<boolean> {
