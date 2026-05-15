@@ -92,8 +92,11 @@ export default function PickScreen({
       style: styleFor(settings.layer),
       center: [start.lng, start.lat],
       zoom: me ? 15 : 4,
+      bearing: 0,
       attributionControl: { compact: true },
     });
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
     mapRef.current = map;
 
     map.on('click', (e) => {
@@ -136,7 +139,7 @@ export default function PickScreen({
       el.innerHTML = `
         <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.15);box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)"></div>
         <svg width="26" height="26" viewBox="0 0 24 24"
-             style="position:absolute;left:3px;top:3px;transform:rotate(180deg);transition:transform 200ms ease-out">
+             style="position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out">
           <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>`;
       meArrowRef.current = el.querySelector('svg');
@@ -151,8 +154,8 @@ export default function PickScreen({
   useEffect(() => {
     const svg = meArrowRef.current;
     if (!svg) return;
-    let deg = 180;
-    if (me && target) deg = (bearingTo(me, target) + 180) % 360;
+    let deg = 0;
+    if (me && target) deg = bearingTo(me, target);
     (svg as unknown as HTMLElement).style.transform = `rotate(${deg}deg)`;
   }, [me, target]);
 
