@@ -115,10 +115,12 @@ export default function App() {
   // успевает откалиброваться. К старту PRE_RIDE компас уже тёплый, и
   // course-up карта ориентируется верно с первого кадра. Холодный
   // магнитометр на старте раньше давал кривую ориентацию.
+  // Отключаем когда RideScreen берёт управление — иначе два listener'а
+  // одновременно пишут в _sharedSmoothed (warm-up + RideScreen).
   useEffect(() => {
-    if (!target) return;
+    if (!target || screen === 'ride') return;
     return startHeading(() => {});
-  }, [target]);
+  }, [target, screen]);
 
   const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
     resumeWakeAudio(); // внутри жеста «Старт →» — запускаем фоновый аудио

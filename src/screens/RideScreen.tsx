@@ -639,16 +639,27 @@ export default function RideScreen({
   // раз в секунду → карта ехала рывками. Теперь камера каждый кадр (~60 fps)
   // экспоненциально лерпит центр и bearing к целевым значениям → плавно.
   // Один цикл владеет камерой — нет конфликта jumpTo/easeTo между эффектами.
+  //
+  // BEARING_K различается по фазе:
+  //   PRE_RIDE / LONG_STOP (компас): 0.35 — отзывчивость, чтобы карта
+  //     точно следовала за поворотом телефона без заметной задержки.
+  //   RIDING / SHORT_STOP (трек): 0.18 — плавность, трек-bearing дёргается.
   const camTargetPosRef = useRef<{ lng: number; lat: number } | null>(
     me ? { lng: me.lng, lat: me.lat } : null,
   );
   const camTargetBearingRef = useRef(courseHeading);
+  const bearingKRef = useRef(
+    ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.35 : 0.18,
+  );
   useEffect(() => {
     if (me) camTargetPosRef.current = { lng: me.lng, lat: me.lat };
   }, [me]);
   useEffect(() => {
     camTargetBearingRef.current = courseHeading;
   }, [courseHeading]);
+  useEffect(() => {
+    bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 0.35 : 0.18;
+  }, [ridePhase]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -660,7 +671,6 @@ export default function RideScreen({
     let curLat = map.getCenter().lat;
     let curBearing = map.getBearing();
     const POS_K = 0.12;
-    const BEARING_K = 0.18;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const tPos = camTargetPosRef.current;
@@ -672,7 +682,7 @@ export default function RideScreen({
       if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7 && Math.abs(dB) < 0.05) return;
       curLng += dLng * POS_K;
       curLat += dLat * POS_K;
-      curBearing = (curBearing + dB * BEARING_K + 360) % 360;
+      curBearing = (curBearing + dB * bearingKRef.current + 360) % 360;
       map.jumpTo({ center: [curLng, curLat], bearing: curBearing });
       // Маркер «вы» — всегда на реальной GPS-позиции, не на интерполированной.
       // Камера лерпится плавно, но маркер точен — иначе визуальный рассинхрон

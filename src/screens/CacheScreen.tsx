@@ -250,14 +250,10 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       void allTilesCached(settings.layer, sampleTiles(planned, 200)).then((allHave) => {
         if (!allHave) return;
         setAlreadyCachedToast(true);
-        setTimeout(() => {
-          setAlreadyCachedToast(false);
-          onDone();
-        }, 10000);
       });
     }, 700);
     return () => clearTimeout(t);
-  }, [me, settings.layer, onDone]);
+  }, [me, settings.layer]);
 
   async function start() {
     if (tooBig) return;
@@ -289,32 +285,32 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
 
-      {/* Already-cached toast */}
+      {/* Already-cached toast — compact non-blocking pill under the top card */}
       {alreadyCachedToast && (
         <div
           style={{
             position: 'absolute',
-            top: '50%',
+            top: 'calc(80px + env(safe-area-inset-top))',
             left: '50%',
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(11,13,12,0.96)',
-            backdropFilter: 'blur(14px)',
+            transform: 'translateX(-50%)',
+            background: 'rgba(11,13,12,0.92)',
+            backdropFilter: 'blur(10px)',
             border: `1px solid ${C.ok}`,
-            borderRadius: 14,
-            padding: '18px 28px',
+            borderRadius: 999,
+            padding: '6px 16px',
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
-            gap: 8,
-            zIndex: 20,
+            gap: 6,
+            zIndex: 15,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
             animation: 'fadeIn 200ms ease',
           }}
         >
-          <span style={{ fontSize: 32 }}>✓</span>
-          <div style={{ fontFamily: F_DISP, fontSize: 15, fontWeight: 700, color: C.ok }}>Тайлы в кэше</div>
-          <div style={{ fontFamily: F_MONO, fontSize: 10, color: C.inkDim, letterSpacing: '0.12em' }}>
-            ЗАГРУЗКА НЕ НУЖНА
-          </div>
+          <span style={{ fontSize: 14, color: C.ok }}>✓</span>
+          <span style={{ fontFamily: F_MONO, fontSize: 11, fontWeight: 600, color: C.ok, letterSpacing: '0.06em' }}>
+            Тайлы в кэше
+          </span>
         </div>
       )}
 
@@ -452,7 +448,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
           </div>
         )}
 
-        {!progress && (
+        {!progress && !alreadyCachedToast && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => {
@@ -496,6 +492,30 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
               {tooBig ? 'Слишком большая область' : 'Сохранить область'}
             </button>
           </div>
+        )}
+
+        {!progress && alreadyCachedToast && (
+          <button
+            onClick={() => {
+              haptic('medium', settings.haptics);
+              onDone();
+            }}
+            style={{
+              width: '100%',
+              height: 48,
+              background: C.ok,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              fontFamily: F_DISP,
+              fontSize: 15,
+              fontWeight: 700,
+              letterSpacing: '0.02em',
+              boxShadow: `0 0 24px rgba(72,222,148,0.3)`,
+            }}
+          >
+            Поехали →
+          </button>
         )}
 
         {progress && !ready && (
