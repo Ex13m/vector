@@ -88,19 +88,25 @@ export default function PickScreen({
   // Компас — startHeading из orientation.ts (приоритет absolute, shared state).
   // Дополнительное сглаживание α=0.15 поверх: на PickScreen компас декоративный,
   // ему нужна плавность, а не отзывчивость (в отличие от PRE_RIDE наведения).
+  // Аккумулятор непрерывного угла: CSS rotate не умеет shortest-path через 0°/360°,
+  // без него при переходе через север стрелка делает оборот 350° вместо 10°.
   const pickSmoothRef = useRef(NaN);
+  const compassAccumRef = useRef(0);
   useEffect(() => {
     if (needsIosPermission()) return;
     return startHeading((h) => {
       if (Number.isNaN(pickSmoothRef.current)) {
         pickSmoothRef.current = h;
+        compassAccumRef.current = -h;
       } else {
         let d = h - pickSmoothRef.current;
         if (d > 180) d -= 360;
         if (d < -180) d += 360;
         pickSmoothRef.current = ((pickSmoothRef.current + d * 0.15) % 360 + 360) % 360;
+        // Аккумулятор: shortest-path delta, CSS крутит кратчайшим путём
+        compassAccumRef.current += -d * 0.15;
       }
-      setCompassHeading(pickSmoothRef.current);
+      setCompassHeading(compassAccumRef.current);
     });
   }, []);
 
@@ -538,7 +544,7 @@ export default function PickScreen({
             position: 'relative',
             width: 28,
             height: 28,
-            transform: compassHeading !== null ? `rotate(${-compassHeading}deg)` : undefined,
+            transform: compassHeading !== null ? `rotate(${compassHeading}deg)` : undefined,
             transition: compassHeading !== null ? 'transform 200ms ease-out' : 'none',
           }}
         >
