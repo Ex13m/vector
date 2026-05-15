@@ -85,8 +85,10 @@ export default function PickScreen({
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // Компас.
+  // Компас с LPF — сглаживаем шум сенсора, обрабатываем wraparound 0/360.
   useEffect(() => {
+    let smoothed = NaN;
+    let raf = 0;
     const handle = (e: DeviceOrientationEvent) => {
       const ios = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
       let h: number;
@@ -95,13 +97,23 @@ export default function PickScreen({
       } else if (e.alpha != null) {
         h = (360 - e.alpha) % 360;
       } else return;
-      setCompassHeading(h);
+      if (Number.isNaN(smoothed)) {
+        smoothed = h;
+      } else {
+        let diff = h - smoothed;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        smoothed = (smoothed + 0.12 * diff + 360) % 360;
+      }
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setCompassHeading(Math.round(smoothed * 10) / 10));
     };
     window.addEventListener('deviceorientationabsolute', handle as EventListener, true);
     window.addEventListener('deviceorientation', handle as EventListener, true);
     return () => {
       window.removeEventListener('deviceorientationabsolute', handle as EventListener, true);
       window.removeEventListener('deviceorientation', handle as EventListener, true);
+      cancelAnimationFrame(raf);
     };
   }, []);
 
