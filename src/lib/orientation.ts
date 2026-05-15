@@ -25,6 +25,15 @@ export async function requestIosPermission(): Promise<boolean> {
   }
 }
 
+// Разделяемое состояние LPF: прогрев в App.tsx накапливает значение,
+// RideScreen стартует с уже сглаженного показания — нет скачка в 0°.
+let _sharedSmoothed = NaN;
+
+/** Последнее сглаженное значение компаса (NaN если событий ещё не было). */
+export function getLastHeading(): number | null {
+  return Number.isNaN(_sharedSmoothed) ? null : _sharedSmoothed;
+}
+
 /**
  * Подписка на компас. Throttle только по времени (16 Hz). Дельта-гейт
  * НЕ используем: LPF сходится экспоненциально, и любой гейт >0° обрезает
@@ -35,7 +44,8 @@ export function startHeading(handler: HeadingHandler): () => void {
   const MIN_INTERVAL_MS = 60;  // emit ≤16 Hz — отзывчивый компас, без re-render-шторма
 
   let lastEmitAt = 0;
-  let smoothed = NaN;          // low-pass filter state (circular)
+  // Наследуем разделяемое состояние LPF: если прогрев уже шёл — не стартуем с NaN.
+  let smoothed = _sharedSmoothed;
   let hasAbsolute = false;     // true once absolute/webkit event fires
 
   // Общая обработка: isAbsoluteEvent = true для deviceorientationabsolute
@@ -66,12 +76,14 @@ export function startHeading(handler: HeadingHandler): () => void {
     // при ручном вращении телефона (PRE_RIDE compass mode).
     if (Number.isNaN(smoothed)) {
       smoothed = heading;
+      _sharedSmoothed = smoothed;
     } else {
       let diff = heading - smoothed;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
       smoothed = ((smoothed + diff * 0.5) % 360 + 360) % 360;
     }
+    _sharedSmoothed = smoothed;
 
     // ── Emit: только time-throttle. Filter сам отсекает шум, гейт по дельте
     // обрезал бы хвост сходимости (стрелка не докручивает на 0.5°–1°).

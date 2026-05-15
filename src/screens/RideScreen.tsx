@@ -24,7 +24,7 @@ import {
   relativeToClockHM,
   type LatLng,
 } from '../lib/geo';
-import { startHeading, smoothedBearingFromTrail, needsIosPermission, requestIosPermission } from '../lib/orientation';
+import { startHeading, smoothedBearingFromTrail, needsIosPermission, requestIosPermission, getLastHeading } from '../lib/orientation';
 import {
   type RidePhase,
   type TransitionSignal,
@@ -82,7 +82,7 @@ export default function RideScreen({
   const [trail, setTrail] = useState<TrailPoint[]>(
     savedSession?.trail ?? (resumeTrail ? resumeTrail.slice() : []),
   );
-  const [heading, setHeading] = useState(0);
+  const [heading, setHeading] = useState(() => getLastHeading() ?? 0);
   const [mapZoom, setMapZoom] = useState(14);
   // autoFollow=true: карта следует за GPS + bearing вращается по courseHeading.
   // Отключается при ручных жестах (pan/rotate), включается кнопкой центровки.
