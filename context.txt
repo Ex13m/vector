@@ -1,0 +1,47 @@
+Проект: Vector — PWA навигатор для велосипедистов (React + TypeScript + Vite + MapLibre GL JS).
+Репозиторий: github.com/Ex13m/vector
+Деплой: Netlify, автообновление PWA через service worker.
+
+== СТЕК ==
+React 18, TypeScript, Vite, MapLibre GL JS, vite-plugin-pwa (Workbox), idb-keyval.
+
+== ТЕКУЩАЯ ВЕРСИЯ ==
+package.json: "version": "0.5.18"
+
+== ЧТО БЫЛО СДЕЛАНО В ЭТОЙ СЕССИИ ==
+
+1. PickScreen — карта стартовала «югом вверх»
+   Исправление: bearing:0 в конструкторе Map + setBearing(0) в событиях load и styledata + bearing:0 в flyTo.
+   Файл: src/screens/PickScreen.tsx
+
+2. PickScreen — добавлен мини-компас
+   Виджет 44×44 справа под кнопкой настроек. Вращается от deviceorientation/deviceorientationabsolute.
+   iOS: клик запрашивает DeviceOrientationEvent.requestPermission().
+   Файл: src/screens/PickScreen.tsx
+
+3. Компас дёргался — исправлен LPF
+   Экспоненциальный фильтр alpha=0.12 с обработкой перехода 0/360 градусов + throttle через requestAnimationFrame.
+   Файл: src/screens/PickScreen.tsx
+
+4. RideScreen — карта двигалась рывками
+   Было: jumpTo(center) 1Hz по GPS + easeTo(bearing) 16Hz по компасу — два конкурирующих эффекта.
+   Стало: единый rAF-цикл 60fps, экспоненциальный лерп позиции (k=0.12) и курса (k=0.18).
+   Файл: src/screens/RideScreen.tsx
+
+== ВЕРСИИ ==
+0.5.13 — базовая на старте сессии
+0.5.14 — bearing:0 + setBearing на PickScreen
+0.5.15 — мини-компас на PickScreen
+0.5.16 — технический пуш (обновление кэша Netlify)
+0.5.17 — LPF + rAF throttle для компаса
+0.5.18 — плавная камера в RideScreen (rAF loop)
+
+== КЛЮЧЕВЫЕ ФАЙЛЫ ==
+src/screens/PickScreen.tsx   — экран выбора цели, компас, карта
+src/screens/RideScreen.tsx   — экран езды, GPS, камера
+src/lib/orientation.ts       — компас (LPF, iOS permission)
+src/lib/mapStyles.ts         — стили карты (std/sat/topo/tour)
+src/lib/geo.ts               — bearingTo, distance, clock position
+src/lib/voice.ts             — Web Speech API
+src/lib/storage.ts           — IndexedDB через idb-keyval
+package.json                 — версия приложения
