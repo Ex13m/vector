@@ -82,12 +82,16 @@ type OneEuroState = {
  */
 function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
   if (!s.init) {
-    s.smoothed = raw;
+    // Seed от прогретого компаса (warm-up в App.tsx) — если есть.
+    // Без этого первый сырой event (часто мусор при холодном магнитометре)
+    // защёлкивает фильтр на кривом heading, и карта 2-3 сек смотрит не туда.
+    const seed = Number.isNaN(_sharedSmoothed) ? raw : _sharedSmoothed;
+    s.smoothed = seed;
     s.rawPrev = raw;
     s.tPrev = tMs;
     s.dx = 0;
     s.init = true;
-    return raw;
+    return seed;
   }
   let dt = (tMs - s.tPrev) / 1000; // c
   if (!(dt > 0) || dt > 1) dt = 1 / 60; // защита от кривых/просроченных timestamp
