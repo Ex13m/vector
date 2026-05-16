@@ -75,8 +75,17 @@ export default function PickScreen({
   const dragTimerRef = useRef<number | null>(null);
 
   // GPS — пользовательская точка.
+  // getCurrentPosition с maximumAge: Infinity отдаёт кэшированную позицию
+  // мгновенно (без ожидания свежего фикса). Критично при возврате из поездки:
+  // без него watchPosition(enableHighAccuracy) ждёт GPS-lock секундами,
+  // и карта показывает дефолтный вид (Европа, zoom 4) вместо позиции юзера.
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: false, maximumAge: Infinity, timeout: 1000 },
+    );
     const id = navigator.geolocation.watchPosition(
       (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {},
