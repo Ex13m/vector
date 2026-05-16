@@ -21,7 +21,7 @@ import {
   type Trip,
   type TrailPoint,
 } from '../lib/storage';
-import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
+import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
 import { haptic } from '../lib/feedback';
@@ -75,19 +75,14 @@ export default function PickScreen({
   const dragTimerRef = useRef<number | null>(null);
 
   // GPS — пользовательская точка.
-  // getCurrentPosition с maximumAge: Infinity отдаёт кэшированную позицию
-  // мгновенно (без ожидания свежего фикса). Критично при возврате из поездки:
-  // без него watchPosition(enableHighAccuracy) ждёт GPS-lock секундами,
-  // и карта показывает дефолтный вид (Европа, zoom 4) вместо позиции юзера.
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: false, maximumAge: Infinity, timeout: 1000 },
-    );
     const id = navigator.geolocation.watchPosition(
-      (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setMe(p);
+        setLastKnownPos(p);
+      },
       () => {},
       { enableHighAccuracy: true, maximumAge: 5000 },
     );
@@ -122,12 +117,13 @@ export default function PickScreen({
   // Карта.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const start = me ?? { lat: 55.7558, lng: 37.6176 };
+    const start = me ?? getLastKnownPos() ?? { lat: 55.7558, lng: 37.6176 };
+    const hasPos = !!(me || getLastKnownPos());
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: styleFor(settings.layer),
       center: [start.lng, start.lat],
-      zoom: me ? 15 : 4,
+      zoom: hasPos ? 15 : 4,
       bearing: 0,
       attributionControl: { compact: true },
     });

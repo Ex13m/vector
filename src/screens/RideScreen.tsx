@@ -22,6 +22,7 @@ import {
   fmtTime,
   relativeToClock,
   relativeToClockHM,
+  setLastKnownPos,
   type LatLng,
 } from '../lib/geo';
 import { startHeading, smoothedBearingFromTrail, needsIosPermission, requestIosPermission, getLastHeading } from '../lib/orientation';
@@ -224,6 +225,7 @@ export default function RideScreen({
         setGpsLost(false);
         const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: now };
         setMe({ lat: p.lat, lng: p.lng });
+        setLastKnownPos(p);
         const rawSpeed = pos.coords.speed ?? 0;
         if (rawSpeed > speedMaxRef.current) speedMaxRef.current = rawSpeed;
 

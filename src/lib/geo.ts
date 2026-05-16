@@ -6,6 +6,13 @@ const toDeg = (r: number) => (r * 180) / Math.PI;
 
 export type LatLng = { lat: number; lng: number };
 
+// ── Shared last-known GPS position (module-level singleton).
+// Пишется из GPS-callback любого экрана, читается синхронно при создании
+// карты PickScreen — карта стартует УЖЕ центрированной, без flyTo-анимации.
+let _lastKnownPos: LatLng | null = null;
+export function setLastKnownPos(pos: LatLng) { _lastKnownPos = pos; }
+export function getLastKnownPos(): LatLng | null { return _lastKnownPos; }
+
 export function distanceM(a: LatLng, b: LatLng): number {
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
