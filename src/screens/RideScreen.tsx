@@ -79,9 +79,15 @@ export default function RideScreen({
   const targetMarkerRef = useRef<Marker | null>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
-  const [trail, setTrail] = useState<TrailPoint[]>(
+  // ── Trail: ref вместо state. GPS пишет сюда напрямую, не вызывая re-render
+  // всего RideScreen (1600 строк). Производные (bearing, speed) вычисляются
+  // в GPS-callback и пишутся в отдельные лёгкие state.
+  const trailRef = useRef<TrailPoint[]>(
     savedSession?.trail ?? (resumeTrail ? resumeTrail.slice() : []),
   );
+  const [trailBearing, setTrailBearing] = useState<number | null>(null);
+  const [liveSpeedMps, setLiveSpeedMps] = useState(0);
+  const showTrailRef = useRef(settings.showTrail);
   const [heading, setHeading] = useState(() => getLastHeading() ?? 0);
   const [mapZoom, setMapZoom] = useState(14);
   // autoFollow=true: карта следует за GPS + bearing вращается по courseHeading.
@@ -148,6 +154,18 @@ export default function RideScreen({
   useEffect(() => {
     arrivedRef.current = arrived;
   }, [arrived]);
+
+  // ── Refs для 60Hz alignment-haptic в rawHandler (в обход React).
+  // Haptic наведения должен срабатывать точно в момент визуального совмещения
+  // с целью — на полной частоте компаса (~60 Hz), а не на 16 Hz React-state.
+  // Иначе при умеренном вращении (>45°/с) зона ±2° проскальзывает мимо
+  // дискретных 16 Hz семплов и haptic не срабатывает, хотя карта показывает
+  // совмещение.
+  const bearingToTargetRef = useRef(0);
+  const meAvailableRef = useRef(false);
+  const rawAlignedRef = useRef(false);
+  const hapticsRef = useRef(settings.haptics);
+  useEffect(() => { hapticsRef.current = settings.haptics; }, [settings.haptics]);
 
   // ── Фоновый аудио + Media Session, чтобы голос не глох с погашенным экраном.
   useEffect(() => {
@@ -257,10 +275,32 @@ export default function RideScreen({
           }
         }
         lastTrailPointRef.current = p;
-        setTrail((tr) => {
-          const next = [...tr, p];
-          return next.length > 2000 ? next.slice(-2000) : next;
-        });
+        const t = trailRef.current;
+        t.push(p);
+        if (t.length > 2000) { trailRef.current = t.slice(-2000); }
+
+        // Производные: bearing и speed — лёгкие state, re-render только HUD.
+        setTrailBearing(smoothedBearingFromTrail(t, 15));
+        if (t.length >= 2) {
+          const a = t[t.length - 2], b = t[t.length - 1];
+          const dt = (b.t - a.t) / 1000;
+          const spd = (dt >= 0.5 && dt <= 30) ? Math.min(40, distanceM(a, b) / dt) : 0;
+          setLiveSpeedMps(spd);
+          if (spd > speedMaxRef.current) speedMaxRef.current = spd;
+        }
+
+        // Обновляем trail на карте напрямую (без React re-render).
+        if (showTrailRef.current) {
+          const src = mapRef.current?.getSource('trail') as maplibregl.GeoJSONSource | undefined;
+          if (src) {
+            trailCoordsRef.current.push([p.lng, p.lat]);
+            src.setData({
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: trailCoordsRef.current },
+              properties: {},
+            });
+          }
+        }
       },
       () => setGpsLost(true),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 30_000 },
@@ -285,13 +325,13 @@ export default function RideScreen({
   // значения без перезапуска эффекта (избегаем JSON.stringify в setInterval
   // setup/teardown цикле).
   const sessionSnapshotRef = useRef({
-    target, targetName, reverse, trail, time, ridePhase, paused, arrived,
+    target, targetName, reverse, time, ridePhase, paused, arrived,
   });
   useEffect(() => {
     sessionSnapshotRef.current = {
-      target, targetName, reverse, trail, time, ridePhase, paused, arrived,
+      target, targetName, reverse, time, ridePhase, paused, arrived,
     };
-  }, [target, targetName, reverse, trail, time, ridePhase, paused, arrived]);
+  }, [target, targetName, reverse, time, ridePhase, paused, arrived]);
   useEffect(() => {
     const id = window.setInterval(() => {
       const s = sessionSnapshotRef.current;
@@ -300,7 +340,7 @@ export default function RideScreen({
         target: s.target,
         targetName: s.targetName,
         reverse: s.reverse,
-        trail: s.trail,
+        trail: trailRef.current,
         elapsedSec: s.time,
         machineState: machineRef.current,
         ridePhase: s.ridePhase,
@@ -321,6 +361,11 @@ export default function RideScreen({
   // Подписка на компас: throttled-handler → React-state (HUD, голос);
   // rawHandler (полная частота ~60 Hz) → bearing камеры напрямую в ref,
   // в обход React — карта вращается плавно 60 fps без ступенек 16 Hz.
+  //
+  // Alignment-haptic тоже живёт в rawHandler: на 60 Hz проверяет rel-угол
+  // к цели и вибрирует в момент визуального совмещения. Раньше haptic
+  // проверялся в React-эффекте (16 Hz) — при умеренном вращении зона ±2°
+  // проскальзывала мимо дискретных семплов, haptic не срабатывал.
   const beginHeading = useCallback(() => {
     return startHeading(
       (h) => {
@@ -329,7 +374,22 @@ export default function RideScreen({
       },
       (h) => {
         const ph = ridePhaseRef.current;
-        if (ph === 'PRE_RIDE' || ph === 'LONG_STOP') camTargetBearingRef.current = h;
+        if (ph === 'PRE_RIDE' || ph === 'LONG_STOP') {
+          camTargetBearingRef.current = h;
+          // ── 60 Hz alignment haptic: проверяем rel к цели на полной частоте
+          // компаса. Haptic НЕ зависит от silenced (mute = только голос).
+          if (meAvailableRef.current) {
+            const r = ((bearingToTargetRef.current - h) % 360 + 360) % 360;
+            const aligned = r < 2 || r > 358;       // ±2°
+            const outOfZone = r > 5 && r < 355;     // ±5° гистерезис
+            if (aligned && !rawAlignedRef.current) {
+              rawAlignedRef.current = true;
+              haptic('success', hapticsRef.current);
+            } else if (outOfZone) {
+              rawAlignedRef.current = false;
+            }
+          }
+        }
       },
     );
   }, []);
@@ -556,32 +616,27 @@ export default function RideScreen({
     }
   }, [me, target, mapKey, autoFollow]);
 
-  // ── Trail redraw — инкрементальный буфер координат.
-  // Вместо trail.map(p => [p.lng, p.lat]) каждый тик (2000 новых nested
-  // arrays = GC pressure), держим единый Array<[lng,lat]> и аппендим
-  // только новые точки.
+  // ── Trail coords buffer: инкрементальные push делаются в GPS-callback.
+  // Этот эффект обрабатывает только переключение showTrail и styledata-rebuild.
   const trailCoordsRef = useRef<[number, number][]>([]);
   useEffect(() => {
+    showTrailRef.current = settings.showTrail;
     const map = mapRef.current;
     if (!map) return;
     const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
     if (!settings.showTrail) {
       trailCoordsRef.current = [];
-    } else if (trail.length === trailCoordsRef.current.length + 1) {
-      // Обычный случай — добавилась 1 точка.
-      const p = trail[trail.length - 1];
-      trailCoordsRef.current.push([p.lng, p.lat]);
-    } else if (trail.length !== trailCoordsRef.current.length) {
-      // Rebuild — slice/resume/clear.
-      trailCoordsRef.current = trail.map((p) => [p.lng, p.lat]);
+    } else {
+      // Rebuild при включении showTrail (или после styledata reload).
+      trailCoordsRef.current = trailRef.current.map((p) => [p.lng, p.lat]);
     }
     src.setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: trailCoordsRef.current },
       properties: {},
     });
-  }, [trail, settings.showTrail]);
+  }, [settings.showTrail]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -605,19 +660,7 @@ export default function RideScreen({
 
   // Auto-hide chrome убран — по требованию иконки всегда видны.
 
-  // ── Расчёты.
-  const liveSpeedMps = useMemo(() => {
-    if (trail.length < 2) return 0;
-    const a = trail[trail.length - 2];
-    const b = trail[trail.length - 1];
-    const dt = (b.t - a.t) / 1000;
-    if (dt < 0.5 || dt > 30) return 0;
-    return Math.min(40, distanceM(a, b) / dt);
-  }, [trail]);
-
-  useEffect(() => {
-    if (liveSpeedMps > speedMaxRef.current) speedMaxRef.current = liveSpeedMps;
-  }, [liveSpeedMps]);
+  // ── Расчёты. liveSpeedMps и speedMaxRef обновляются в GPS-callback.
 
   // ── 4-phase heading. courseHeading = «куда направлен курс» = bearing карты
   // (course-up навигация: карта вращается, маркер «вы» зафиксирован вверх).
@@ -628,9 +671,8 @@ export default function RideScreen({
   const courseHeading = useMemo(() => {
     switch (ridePhase) {
       case 'RIDING': {
-        const smoothed = smoothedBearingFromTrail(trail, 15);
-        if (smoothed !== null) lastRidingBearingRef.current = smoothed;
-        return smoothed ?? heading;
+        if (trailBearing !== null) lastRidingBearingRef.current = trailBearing;
+        return trailBearing ?? heading;
       }
       case 'SHORT_STOP':
         return lastRidingBearingRef.current;
@@ -639,9 +681,12 @@ export default function RideScreen({
       default:
         return heading; // компас из orientation.ts — без девайс-коррекции
     }
-  }, [ridePhase, trail, heading]);
+  }, [ridePhase, trailBearing, heading]);
 
   const bearing = me ? bearingTo(me, target) : 0;
+  // Sync bearing/me в refs для 60Hz rawHandler (alignment haptic).
+  bearingToTargetRef.current = bearing;
+  meAvailableRef.current = me !== null;
   const rel = ((bearing - courseHeading) % 360 + 360) % 360;
   const clockNum = me ? relativeToClock(rel) : 12;
   const clockHM = me ? relativeToClockHM(rel) : '12:00';
@@ -681,6 +726,9 @@ export default function RideScreen({
   }, [courseHeading, ridePhase]);
   useEffect(() => {
     bearingKRef.current = ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? 1.0 : 0.18;
+    // Сброс alignment-гистерезиса при смене фазы — при входе в LONG_STOP
+    // (из RIDING) первое совмещение с целью гарантированно сработает.
+    rawAlignedRef.current = false;
   }, [ridePhase]);
 
   useEffect(() => {
@@ -695,6 +743,7 @@ export default function RideScreen({
     const POS_K = 0.12;
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      if (document.hidden) return; // экран погашен — не тратим CPU
       const tPos = camTargetPosRef.current;
       if (!tPos) return;
       const dLng = tPos.lng - curLng;
@@ -789,7 +838,7 @@ export default function RideScreen({
       distM: Math.round(ridden),
       speedAvgMps: avgMps,
       speedMaxMps: speedMaxRef.current,
-      trail,
+      trail: trailRef.current,
       reverse,
       finished: true,
       target,
@@ -937,8 +986,12 @@ export default function RideScreen({
 
   // ── Голос «Цель впереди» в PRE_RIDE / LONG_STOP — edge-detection БЕЗ dwell.
   // Сценарий «вожу телефоном туда-сюда»: каждое пересечение вектора (вход в ±2°)
-  // мгновенно даёт голос + haptic. Гистерезис ±5° перезаряжает триггер
+  // мгновенно даёт голос. Гистерезис ±5° перезаряжает триггер
   // (надо выйти за 5° чтобы снова сработало). Как metal detector beep.
+  //
+  // HAPTIC живёт отдельно в rawHandler (60 Hz) — см. beginHeading.
+  // Здесь только голос, на 16 Hz React-state (speech synthesis сам имеет лаг).
+  // Mute (`silenced`) отключает голос, но НЕ haptic — вибрация всегда работает.
   const wasAlignedRef = useRef(false);
   useEffect(() => {
     if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
@@ -951,7 +1004,7 @@ export default function RideScreen({
 
     if (aligned && !wasAlignedRef.current) {
       wasAlignedRef.current = true;
-      haptic('success', settings.haptics);
+      // Haptic уже сработал из rawHandler на полной частоте ~60 Hz.
       const phrase =
         settings.lang === 'ru' ? 'Цель впереди' :
         settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
@@ -959,7 +1012,7 @@ export default function RideScreen({
     } else if (outOfZone) {
       wasAlignedRef.current = false;
     }
-  }, [rel, ridePhase, me, silenced, compassFired, settings.lang, settings.voiceURI, settings.haptics]);
+  }, [rel, ridePhase, me, silenced, compassFired, settings.lang, settings.voiceURI]);
 
   // ── visibilitychange: при пробуждении — отменить накопившуюся речь и
   // дождаться свежего GPS перед следующей фразой.
@@ -1507,7 +1560,7 @@ export default function RideScreen({
           units={settings.units}
           targetName={targetName}
           target={target}
-          trail={trail}
+          trail={trailRef.current}
           onJournal={() => {
             haptic('light', settings.haptics);
             onJournal();
@@ -1517,10 +1570,11 @@ export default function RideScreen({
             onExit();
           }}
           onReverse={
-            trail.length > 0
+            trailRef.current.length > 0
               ? () => {
                   haptic('medium', settings.haptics);
-                  onReverseRide({ lat: trail[0].lat, lng: trail[0].lng }, trail);
+                  const tr = trailRef.current;
+                  onReverseRide({ lat: tr[0].lat, lng: tr[0].lng }, tr);
                 }
               : null
           }

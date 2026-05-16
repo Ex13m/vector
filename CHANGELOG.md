@@ -2,6 +2,19 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.26] — 2026-05-16
+
+### Оптимизация
+
+- **Trail в useRef вместо useState** — GPS-трек (`trail`) перенесён из React-state в `useRef`. Каждый GPS-фикс (~1 Hz) больше не вызывает re-render всего RideScreen (~1600 строк JSX). Производные (bearing по треку, скорость) вычисляются в GPS-callback и пишутся в отдельные лёгкие `useState`. Обновление trail на карте (MapLibre GeoJSON source) делается напрямую из callback, без прохода через React. Побочный эффект: `smoothedBearingFromTrail` теперь вызывается 1×/сек (на GPS-фикс), а не 16×/сек (на каждый heading-change через courseHeading useMemo). Главный выигрыш по CPU и батарее.
+- **rAF skip при `document.hidden`** — цикл камеры (60 fps lerp позиции и bearing) пропускает кадры когда вкладка/экран скрыт. Экономит CPU в фоне.
+
+## [0.5.25] — 2026-05-16
+
+### Исправлено
+
+- **PRE_RIDE/LONG_STOP: haptic наведения не срабатывал** — вибрация при совмещении телефона с целью (±2°) проверялась в React-эффекте на 16 Hz (throttled `heading` state). При умеренном вращении (>45°/с) зона 4° проскальзывала между дискретными 16 Hz семплами — haptic не срабатывал, хотя карта (60 Hz `rawHandler`) визуально показывала совмещение. Haptic перенесён в compass `rawHandler` (полная частота ~60 Hz) — теперь вибрация точно совпадает с визуальным совмещением. Голос «Цель впереди» остаётся в React-эффекте (16 Hz достаточно для speech synthesis). Haptic больше НЕ блокируется кнопкой Mute (`silenced`) — Mute отключает только голос, вибрация работает всегда.
+
 ## [0.5.24] — 2026-05-16
 
 ### Изменено
