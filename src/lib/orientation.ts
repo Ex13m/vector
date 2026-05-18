@@ -4,6 +4,7 @@
 import { distanceM, type LatLng } from './geo';
 
 type HeadingHandler = (heading: number) => void;
+type RawHeadingHandler = (smoothed: number, raw: number) => void;
 
 type DOEStatic = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
@@ -108,13 +109,6 @@ function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
   const a = lowpassAlpha(rate, cutoff);
   s.smoothed = ((s.smoothed + a * angleDelta(raw, s.smoothed)) % 360 + 360) % 360;
 
-  // Snap-on-stop: если угловая скорость упала и зазор мал — защёлкиваем
-  // smoothed на raw мгновенно. Убирает видимый «доезд» при остановке вращения.
-  const gap = Math.abs(angleDelta(raw, s.smoothed));
-  if (Math.abs(s.dx) < 8 && gap < 12 && gap > 0.3) {
-    s.smoothed = raw;
-  }
-
   s.rawPrev = raw;
   s.tPrev = tMs;
   return s.smoothed;
@@ -131,7 +125,7 @@ function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
  *                 React не трогает → карта вращается плавно 60 fps без
  *                 ступенек 16 Hz и без лага (лерп не нужен).
  */
-export function startHeading(handler: HeadingHandler, rawHandler?: HeadingHandler): () => void {
+export function startHeading(handler: HeadingHandler, rawHandler?: RawHeadingHandler): () => void {
   const MIN_INTERVAL_MS = 60; // emit ≤16 Hz
 
   let lastEmitAt = 0;
@@ -172,7 +166,8 @@ export function startHeading(handler: HeadingHandler, rawHandler?: HeadingHandle
     _sharedSmoothed = smoothed;
 
     // Полная частота → камера карты (ref, без React-рендера).
-    rawHandler?.(smoothed);
+    // Передаём и smoothed (1€) и raw — потребитель выбирает по режиму.
+    rawHandler?.(smoothed, heading);
 
     // Emit в React — time-throttle 16 Hz. Фильтр уже сделал всё сглаживание.
     const now = Date.now();

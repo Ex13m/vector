@@ -393,14 +393,22 @@ export default function RideScreen({
         setCompassFired(true);
         setHeading(h);
       },
-      (h) => {
+      (_smoothed, raw) => {
         const ph = ridePhaseRef.current;
         if (ph === 'PRE_RIDE' || ph === 'LONG_STOP') {
-          camTargetBearingRef.current = h;
+          // Режим наведения: raw heading + лёгкий EMA (alpha=0.5, сходится за
+          // 2 кадра ≈33мс). Нулевой видимый лаг, нулевой «проезд» при остановке.
+          // 1€-smoothed здесь НЕ используется — его лаг создавал дрейф 5-15°.
+          const prev = camTargetBearingRef.current;
+          const delta = ((raw - prev) % 360 + 540) % 360 - 180;
+          if (Math.abs(delta) > 0.3) {
+            camTargetBearingRef.current = ((prev + delta * 0.5) % 360 + 360) % 360;
+          }
           // ── 60 Hz alignment haptic: проверяем rel к цели на полной частоте
           // компаса. Haptic НЕ зависит от silenced (mute = только голос).
+          const bearing = camTargetBearingRef.current;
           if (meAvailableRef.current) {
-            const r = ((bearingToTargetRef.current - h) % 360 + 360) % 360;
+            const r = ((bearingToTargetRef.current - bearing) % 360 + 360) % 360;
             const aligned = r < 2 || r > 358;       // ±2°
             const outOfZone = r > 5 && r < 355;     // ±5° гистерезис
             if (aligned && !rawAlignedRef.current) {
