@@ -108,6 +108,13 @@ function oneEuroStep(s: OneEuroState, raw: number, tMs: number): number {
   const a = lowpassAlpha(rate, cutoff);
   s.smoothed = ((s.smoothed + a * angleDelta(raw, s.smoothed)) % 360 + 360) % 360;
 
+  // Snap-on-stop: если угловая скорость упала и зазор мал — защёлкиваем
+  // smoothed на raw мгновенно. Убирает видимый «доезд» при остановке вращения.
+  const gap = Math.abs(angleDelta(raw, s.smoothed));
+  if (Math.abs(s.dx) < 8 && gap < 12 && gap > 0.3) {
+    s.smoothed = raw;
+  }
+
   s.rawPrev = raw;
   s.tPrev = tMs;
   return s.smoothed;
