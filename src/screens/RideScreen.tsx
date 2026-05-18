@@ -877,7 +877,7 @@ export default function RideScreen({
       if (!sig) return;
       switch (sig.type) {
         case 'START_RIDING': {
-          // Голос «Поехали!» + вибрация
+          // Голос «Поехали!» + вектор на цель через 3с + вибрация
           if (settings.haptics && navigator.vibrate) navigator.vibrate([40, 80, 40]);
           if (!silenced) {
             const phrase =
@@ -885,6 +885,13 @@ export default function RideScreen({
               settings.lang === 'de' ? 'Los geht\'s!' : 'Let\'s go!';
             speak(phrase, settings.lang, settings.voiceURI);
             lastVoiceRef.current = Date.now();
+            // Через 1.5с — первая навигационная фраза (вектор на цель).
+            // Пауза нужна чтобы «Поехали!» успело прозвучать целиком.
+            if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
+            resumeVoiceTimerRef.current = window.setTimeout(() => {
+              lastVoiceRef.current = Date.now();
+              speakRef.current();
+            }, 1500);
           }
           break;
         }
