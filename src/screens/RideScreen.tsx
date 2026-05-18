@@ -925,13 +925,13 @@ export default function RideScreen({
           break;
         }
         case 'RESUME_RIDING': {
-          // Задержанное голосовое — через 3с озвучить текущую позицию
+          // Задержанное голосовое — через 1.5с озвучить текущую позицию
           if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
           if (!silenced) {
             resumeVoiceTimerRef.current = window.setTimeout(() => {
               lastVoiceRef.current = Date.now();
               speakRef.current();
-            }, 3000);
+            }, 1500);
           }
           break;
         }
