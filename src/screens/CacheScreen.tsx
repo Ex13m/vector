@@ -216,7 +216,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const update = () => setMapZoom(map.getZoom());
+    const update = () => setMapZoom(Math.round(map.getZoom()));
     update();
     map.on('zoom', update);
     map.on('moveend', update);
@@ -373,6 +373,76 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       >
         ←
       </button>
+
+      {/* Zoom badge — справа (слева кнопка назад) */}
+      <div
+        style={{
+          position: 'absolute',
+          right: 12,
+          top: 'calc(72px + env(safe-area-inset-top))',
+          background: 'rgba(17,20,19,0.92)',
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 8,
+          padding: '4px 9px',
+          fontFamily: F_MONO,
+          fontSize: 11,
+          fontWeight: 600,
+          color: C.target,
+          letterSpacing: '0.08em',
+          fontVariantNumeric: 'tabular-nums',
+          zIndex: 10,
+          pointerEvents: 'none',
+          minWidth: 38,
+          textAlign: 'center',
+        }}
+      >
+        Z{mapZoom}
+      </div>
+
+      {/* Recenter — внизу справа */}
+      {me && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic('light', settings.haptics);
+            const map = mapRef.current;
+            if (map) {
+              const sw: [number, number] = [Math.min(me.lng, target.lng), Math.min(me.lat, target.lat)];
+              const ne: [number, number] = [Math.max(me.lng, target.lng), Math.max(me.lat, target.lat)];
+              map.fitBounds([sw, ne], { padding: 60, maxZoom: 16, duration: 600 });
+            }
+          }}
+          aria-label="recenter"
+          style={{
+            position: 'absolute',
+            right: 14,
+            bottom: 'calc(96px + env(safe-area-inset-bottom))',
+            width: 48,
+            height: 48,
+            background: 'rgba(11,13,12,0.85)',
+            border: `1px solid ${C.line2}`,
+            color: C.inkDim,
+            borderRadius: 999,
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+            zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="12" r="8" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+      )}
 
       {/* Pinch hint */}
       {!hintHidden && !progress && (

@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.33] — 2026-05-18
+
+### Добавлено
+
+- **CacheScreen: zoom badge + кнопка центрирования** — zoom badge справа (слева занято кнопкой «назад»), кнопка recenter (crosshair) внизу справа — fitBounds на позицию юзера + цель. Дублирует автоматическое центрирование для быстрого ручного возврата.
+
 ## [0.5.32] — 2026-05-16
 
 ### Добавлено
