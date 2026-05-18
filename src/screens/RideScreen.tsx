@@ -940,12 +940,11 @@ export default function RideScreen({
           break;
         case 'ENTER_LONG_STOP': {
           // Голос и таймер уже останавливаются через ridePhase guard.
-          // Озвучиваем «Остановка — навигация на паузе».
           if (!silenced) {
             const phrase =
-              settings.lang === 'ru' ? 'Остановка — навигация на паузе' :
-              settings.lang === 'de' ? 'Angehalten — Navigation pausiert' :
-              'Stopped — navigation paused';
+              settings.lang === 'ru' ? 'Остановка — двигайтесь к цели для продолжения' :
+              settings.lang === 'de' ? 'Angehalten — fahren Sie zum Ziel um fortzufahren' :
+              'Stopped — move towards your target to continue';
             speak(phrase, settings.lang, settings.voiceURI);
           }
           break;
@@ -1488,7 +1487,7 @@ export default function RideScreen({
               {!me
                 ? '⏳ ожидание GPS'
                 : ridePhase === 'LONG_STOP'
-                ? '⏸ остановка · навигация на паузе'
+                ? '⏸ остановка · двигайтесь к цели'
                 : '🧭 двигайтесь к цели · авто-старт'}
             </>
           ) : (
