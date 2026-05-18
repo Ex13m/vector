@@ -279,7 +279,6 @@ export default function RideScreen({
         lastTrailPointRef.current = p;
         const t = trailRef.current;
         t.push(p);
-        if (t.length > 2000) { trailRef.current = t.slice(-2000); }
 
         // Производные: bearing и speed — лёгкие state, re-render только HUD.
         setTrailBearing(smoothedBearingFromTrail(t, 15));
