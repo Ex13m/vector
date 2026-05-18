@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.36] — 2026-05-19 ⚠️ ЭКСПЕРИМЕНТ
+
+### Исправлено
+
+- **⚠️ LONG_STOP: accuracy guard** — если GPS accuracy > 30м (помещение, навес), state machine не тикается в LONG_STOP. Предотвращает ложный переход в RIDING от прыгающего GPS внутри магазина. Остальные фазы не затронуты. Откатить если мешает выходу из LONG_STOP на улице.
+
 ## [0.5.35] — 2026-05-19 ⚠️ ЭКСПЕРИМЕНТ
 
 ### Изменено
