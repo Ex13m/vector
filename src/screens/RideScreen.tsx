@@ -156,6 +156,10 @@ export default function RideScreen({
     arrivedRef.current = arrived;
   }, [arrived]);
 
+  // ── Round-trip guard: если старт рядом с целью (<50 м), подавляем arrival
+  // пока не отъедем. Без этого GPS-джиттер мгновенно триггерит «приехали».
+  const startedAtTargetRef = useRef<boolean | null>(null); // null = ещё не инициализирован
+
   // ── Refs для 60Hz alignment-haptic в rawHandler (в обход React).
   // Haptic наведения должен срабатывать точно в момент визуального совмещения
   // с целью — на полной частоте компаса (~60 Hz), а не на 16 Hz React-state.
@@ -174,6 +178,22 @@ export default function RideScreen({
     setupMediaSession('Vector · к цели');
     return () => stopWakeAudio();
   }, []);
+
+  // ── PRE_RIDE voice hint: озвучиваем один раз при маунте.
+  const preRideHintSpoken = useRef(false);
+  useEffect(() => {
+    if (preRideHintSpoken.current || silenced) return;
+    if (ridePhase !== 'PRE_RIDE') return;
+    preRideHintSpoken.current = true;
+    const phrase =
+      settings.lang === 'ru' ? 'Двигайтесь к цели — навигация начнётся автоматически' :
+      settings.lang === 'de' ? 'Fahren Sie zum Ziel — die Navigation startet automatisch' :
+      'Move towards your target — navigation will start automatically';
+    // Небольшая задержка чтобы не столкнуться с инициализацией аудио.
+    const t = setTimeout(() => speak(phrase, settings.lang, settings.voiceURI), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ridePhase]);
 
   // ── Screen Wake Lock: не даём экрану гаснуть пока идёт поездка.
   // API поддерживается Chrome 84+, Safari 16.4+, Edge 84+.
@@ -695,6 +715,14 @@ export default function RideScreen({
   const dist = fmtDist(distM, settings.units);
   const near = !!(me && distM < NEAR_M);
 
+  // ── Round-trip guard: инициализация + сброс.
+  if (me && startedAtTargetRef.current === null) {
+    startedAtTargetRef.current = distM < 50;
+  }
+  if (startedAtTargetRef.current && distM >= 50) {
+    startedAtTargetRef.current = false;
+  }
+
   // ── Auto-follow: единый rAF-цикл камеры.
   // GPS приходит ~1 Hz, courseHeading ~16 Hz. Раньше центр снапался jumpTo
   // раз в секунду → карта ехала рывками. Теперь камера каждый кадр (~60 fps)
@@ -812,9 +840,11 @@ export default function RideScreen({
 
   // ── Поездка достигнута: <ARRIVED_M, только в RIDING.
   // В PRE_RIDE GPS-джиттер может «приблизить» к цели — игнорируем.
+  // Round-trip guard: если старт был рядом с целью — ждём пока отъедем.
   useEffect(() => {
     if (!me || arrived || paused) return;
     if (ridePhase !== 'RIDING') return;
+    if (startedAtTargetRef.current) return;
     if (distM < ARRIVED_M) triggerArrived();
   }, [me, distM, arrived, paused, ridePhase, triggerArrived]);
 
@@ -908,9 +938,18 @@ export default function RideScreen({
         case 'ENTER_SHORT_STOP':
           // Bearing уже заморожен через courseHeading useMemo
           break;
-        case 'ENTER_LONG_STOP':
-          // Голос и таймер уже останавливаются через ridePhase guard
+        case 'ENTER_LONG_STOP': {
+          // Голос и таймер уже останавливаются через ridePhase guard.
+          // Озвучиваем «Остановка — навигация на паузе».
+          if (!silenced) {
+            const phrase =
+              settings.lang === 'ru' ? 'Остановка — навигация на паузе' :
+              settings.lang === 'de' ? 'Angehalten — Navigation pausiert' :
+              'Stopped — navigation paused';
+            speak(phrase, settings.lang, settings.voiceURI);
+          }
           break;
+        }
       }
     };
   }, [settings.haptics, settings.lang, settings.voiceURI, silenced]);
@@ -1449,8 +1488,8 @@ export default function RideScreen({
               {!me
                 ? '⏳ ожидание GPS'
                 : ridePhase === 'LONG_STOP'
-                ? '⏸ стоянка · наведите на цель'
-                : '🧭 наведите телефон на цель'}
+                ? '⏸ остановка · навигация на паузе'
+                : '🧭 двигайтесь к цели · авто-старт'}
             </>
           ) : (
             <>
