@@ -66,6 +66,7 @@ export default function PickScreen({
   const [showFavSheet, setShowFavSheet] = useState(false);
   const [favSheetTab, setFavSheetTab] = useState<'targets' | 'trips'>('targets');
   const [layerOpen, setLayerOpen] = useState(false);
+  const [mapZoom, setMapZoom] = useState(15);
   const [saved, setSaved] = useState<SavedTarget[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
 
@@ -148,6 +149,8 @@ export default function PickScreen({
       addVectorSource(map);
       addTargetSource(map);
     });
+
+    map.on('zoom', () => setMapZoom(Math.round(map.getZoom())));
 
     return () => {
       map.remove();
@@ -559,6 +562,72 @@ export default function PickScreen({
           <div style={{ position: 'absolute', top: 21, left: '50%', transform: 'translateX(-50%)', width: 3, height: 7, background: C.inkDim, borderRadius: '0 0 2px 2px' }} />
         </div>
       </div>
+
+      {/* Zoom badge — слева под topbar */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          top: 'calc(60px + env(safe-area-inset-top))',
+          background: 'rgba(17,20,19,0.92)',
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${C.line2}`,
+          borderRadius: 8,
+          padding: '4px 9px',
+          fontFamily: F_MONO,
+          fontSize: 11,
+          fontWeight: 600,
+          color: C.target,
+          letterSpacing: '0.08em',
+          fontVariantNumeric: 'tabular-nums',
+          zIndex: 5,
+          pointerEvents: 'none',
+          minWidth: 38,
+          textAlign: 'center',
+        }}
+      >
+        Z{mapZoom}
+      </div>
+
+      {/* Recenter — внизу справа */}
+      {me && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic('light', settings.haptics);
+            const map = mapRef.current;
+            if (map) map.flyTo({ center: [me.lng, me.lat], zoom: 15, bearing: 0, duration: 600 });
+          }}
+          aria-label="recenter"
+          style={{
+            position: 'absolute',
+            right: 14,
+            bottom: 'calc(96px + env(safe-area-inset-bottom))',
+            width: 48,
+            height: 48,
+            background: 'rgba(11,13,12,0.85)',
+            border: `1px solid ${C.line2}`,
+            color: C.inkDim,
+            borderRadius: 999,
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+            zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="12" r="8" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+      )}
 
       {/* Settings (внизу слева, не в спеке — но нужен доступ) */}
       <button

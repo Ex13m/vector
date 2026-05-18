@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.32] — 2026-05-16
+
+### Добавлено
+
+- **PickScreen: zoom badge + кнопка центрирования** — zoom badge слева (как в RideScreen), кнопка recenter (crosshair) внизу справа — flyTo на позицию юзера с zoom 15. Стиль, размеры и расположение идентичны RideScreen.
+
 ## [0.5.31] — 2026-05-16
 
 ### Исправлено
