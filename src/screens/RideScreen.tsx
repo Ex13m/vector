@@ -263,11 +263,12 @@ export default function RideScreen({
           };
         }
 
-        // ── LONG_STOP accuracy guard: в помещении (магазин, навес) GPS прыгает,
+        // ── Accuracy guard (PRE_RIDE / LONG_STOP): в помещении GPS прыгает,
         // accuracy 50–200м. Без фильтра state machine видит ложное «уехал» и
         // переводит в RIDING. Пропускаем tick если accuracy плохая. (эксперимент v0.5.36)
         const accuracy = pos.coords.accuracy ?? 999;
-        if (machineRef.current.phase === 'LONG_STOP' && accuracy > 30) {
+        const ph = machineRef.current.phase;
+        if ((ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30) {
           return; // GPS ненадёжен — не тикаем state machine, ждём нормальный фикс
         }
 

@@ -6,7 +6,7 @@
 
 ### Исправлено
 
-- **⚠️ LONG_STOP: accuracy guard** — если GPS accuracy > 30м (помещение, навес), state machine не тикается в LONG_STOP. Предотвращает ложный переход в RIDING от прыгающего GPS внутри магазина. Остальные фазы не затронуты. Откатить если мешает выходу из LONG_STOP на улице.
+- **⚠️ PRE_RIDE + LONG_STOP: accuracy guard** — если GPS accuracy > 30м (помещение, навес), state machine не тикается в PRE_RIDE и LONG_STOP. Предотвращает ложный переход в RIDING от прыгающего GPS. RIDING и SHORT_STOP не затронуты. Откатить если мешает старту под навесом.
 
 ## [0.5.35] — 2026-05-19 ⚠️ ЭКСПЕРИМЕНТ
 
