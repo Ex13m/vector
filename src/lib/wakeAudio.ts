@@ -61,6 +61,23 @@ export function initWakeAudio(): void {
     el.setAttribute('x-webkit-airplay', 'deny');
     document.body.appendChild(el);
     audioEl = el;
+
+    // Авто-resume: входящий звонок или системное прерывание паузит audio.
+    // После завершения звонка пробуем возобновить с задержкой.
+    el.addEventListener('pause', () => {
+      _playing = false;
+      setTimeout(() => {
+        if (audioEl && !_playing) tryPlay();
+      }, 1500);
+    });
+
+    // При возврате в foreground — тоже пробуем resume.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && audioEl && !_playing) {
+        tryPlay();
+      }
+    });
+
     // Подписываемся на первый жест для автозапуска
     document.addEventListener('touchstart', onFirstGesture, { capture: true, once: false });
     document.addEventListener('mousedown', onFirstGesture, { capture: true, once: false });
@@ -105,22 +122,11 @@ export function stopWakeAudio(): void {
   clearMediaSession();
 }
 
-export function setupMediaSession(title: string): void {
-  if (!('mediaSession' in navigator)) return;
-  try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title,
-      artist: 'Vector',
-      album: 'Voice cycling beacon',
-    });
-    navigator.mediaSession.playbackState = 'playing';
-    // Пустые обработчики — iOS требует их для статуса playing
-    const noop = () => {};
-    navigator.mediaSession.setActionHandler('play', noop);
-    navigator.mediaSession.setActionHandler('pause', noop);
-  } catch {
-    // ignore
-  }
+export function setupMediaSession(_title: string): void {
+  // Намеренно НЕ ставим metadata и playbackState.
+  // Silent <audio loop> достаточно чтобы держать вкладку живой.
+  // Если поставить playbackState='playing' — перехватываем управление
+  // у музыкальных плееров (Spotify, Apple Music) на наушниках.
 }
 
 export function clearMediaSession(): void {

@@ -264,6 +264,16 @@ export default function RideScreen({
         const now = Date.now();
         lastGpsAtRef.current = now;
         setGpsLost(false);
+
+        // ── Accuracy guard (PRE_RIDE / LONG_STOP): в помещении GPS прыгает,
+        // accuracy 50–200м. Без фильтра state machine видит ложное «уехал» и
+        // переводит в RIDING. Пропускаем ВСЁ (включая setMe) чтобы маркер не прыгал.
+        const accuracy = pos.coords.accuracy ?? 999;
+        const ph = machineRef.current.phase;
+        if ((ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30) {
+          return; // GPS ненадёжен — ждём нормальный фикс
+        }
+
         const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: now };
         setMe({ lat: p.lat, lng: p.lng });
         setLastKnownPos(p);
@@ -282,15 +292,6 @@ export default function RideScreen({
             fastFixCount: 0,
             resumeFixCount: 0,
           };
-        }
-
-        // ── Accuracy guard (PRE_RIDE / LONG_STOP): в помещении GPS прыгает,
-        // accuracy 50–200м. Без фильтра state machine видит ложное «уехал» и
-        // переводит в RIDING. Пропускаем tick если accuracy плохая. (эксперимент v0.5.36)
-        const accuracy = pos.coords.accuracy ?? 999;
-        const ph = machineRef.current.phase;
-        if ((ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30) {
-          return; // GPS ненадёжен — не тикаем state machine, ждём нормальный фикс
         }
 
         // ── Tick state machine
@@ -388,10 +389,15 @@ export default function RideScreen({
       target, targetName, reverse, time, ridePhase, paused, arrived,
     };
   }, [target, targetName, reverse, time, ridePhase, paused, arrived]);
+  const lastSavedTrailLenRef = useRef(0);
   useEffect(() => {
     const id = window.setInterval(() => {
       const s = sessionSnapshotRef.current;
       if (s.arrived) return;
+      // Skip если trail не вырос — нет смысла сериализовать то же самое.
+      const curLen = trailRef.current.length;
+      if (curLen === lastSavedTrailLenRef.current) return;
+      lastSavedTrailLenRef.current = curLen;
       saveRideSession({
         target: s.target,
         targetName: s.targetName,
@@ -405,7 +411,7 @@ export default function RideScreen({
         paused: s.paused,
         savedAt: Date.now(),
       });
-    }, 3000);
+    }, 10_000); // 10с вместо 3с — меньше нагрузка на длинных поездках
     return () => window.clearInterval(id);
   }, []);
 
@@ -815,7 +821,7 @@ export default function RideScreen({
     const POS_K = 0.12;
     const tick = () => {
       raf = requestAnimationFrame(tick);
-      if (document.hidden) return; // экран погашен — не тратим CPU
+      if (document.hidden || arrivedRef.current) return; // экран погашен или прибыли — не тратим CPU
       const tPos = camTargetPosRef.current;
       if (!tPos) return;
 
@@ -1650,7 +1656,10 @@ export default function RideScreen({
 
       {/* Quit modal */}
       {showQuitModal && (
-        <QuitModal onContinue={handleQuitContinue} onFinish={handleQuitFinish} />
+        <QuitModal
+          onContinue={handleQuitContinue}
+          onFinish={handleQuitFinish}
+        />
       )}
 
       {/* Arrived overlay */}

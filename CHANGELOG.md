@@ -2,6 +2,16 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.39] — 2026-05-20
+
+### Исправлено
+
+- **Accuracy guard перед setMe** — маркер больше не прыгает на неточную позицию в PRE_RIDE/LONG_STOP при плохом GPS (guard теперь отсекает весь фикс, включая обновление маркера).
+- **rAF loop: стоп при arrived** — камера и GPS-prediction перестают тратить GPU когда открыт ArrivedOverlay.
+- **Auto-save: интервал 10с + skip** — сериализация сессии каждые 10с вместо 3с, пропуск если trail не вырос. Меньше нагрузка на длинных поездках.
+- **MediaSession: не перехватывает музыку** — убраны metadata и playbackState, Spotify/Apple Music сохраняют контроль над наушниками.
+- **Авто-resume аудио после звонка** — silent loop возобновляется автоматически после входящего звонка или системного прерывания (pause listener + visibilitychange).
+
 ## [0.5.38] — 2026-05-19 🔴 КРИТИЧЕСКАЯ СБОРКА
 
 ### Добавлено
