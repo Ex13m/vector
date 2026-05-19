@@ -2,7 +2,7 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [0.5.38] — 2026-05-19
+## [0.5.38] — 2026-05-19 🔴 КРИТИЧЕСКАЯ СБОРКА
 
 ### Добавлено
 
