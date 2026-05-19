@@ -32,6 +32,7 @@ export default defineConfig({
         // workbox молча выкидывает их из precache → офлайн ломается.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^https?:\/\//, /\/api\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com',
