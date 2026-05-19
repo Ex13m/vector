@@ -1212,11 +1212,6 @@ export default function RideScreen({
     }
   }
 
-  function handleQuitFinish() {
-    setShowQuitModal(false);
-    triggerArrived();
-  }
-
   function handleQuitContinue() {
     setShowQuitModal(false);
   }
@@ -1654,17 +1649,10 @@ export default function RideScreen({
         </div>
       )}
 
-      {/* Quit modal */}
-      {showQuitModal && (
-        <QuitModal
-          onContinue={handleQuitContinue}
-          onFinish={handleQuitFinish}
-        />
-      )}
-
-      {/* Arrived overlay */}
-      {arrived && (
-        <ArrivedOverlay
+      {/* Unified ride modal — manual stop or arrived */}
+      {(showQuitModal || arrived) && (
+        <RideModal
+          arrived={arrived}
           ridden={ridden}
           time={time}
           avgMps={avgMps}
@@ -1676,10 +1664,14 @@ export default function RideScreen({
           target={target}
           trail={trailRef.current}
           onFinish={() => {
+            setShowQuitModal(false);
+            // При ручном стопе нужно сохранить поездку перед выходом.
+            if (!arrived) triggerArrived();
             haptic('light', settings.haptics);
             onJournal();
           }}
           onNewTarget={() => {
+            setShowQuitModal(false);
             haptic('medium', settings.haptics);
             const tr = trailRef.current;
             onContinuePick(tr, ridden, time, speedMaxRef.current);
@@ -1687,12 +1679,17 @@ export default function RideScreen({
           onGoHome={
             trailRef.current.length > 0
               ? () => {
+                  setShowQuitModal(false);
                   haptic('medium', settings.haptics);
                   const tr = trailRef.current;
                   onContinueHome(tr, ridden, time, speedMaxRef.current);
                 }
               : null
           }
+          onContinue={arrived ? null : () => {
+            haptic('light', settings.haptics);
+            handleQuitContinue();
+          }}
         />
       )}
 
@@ -1995,74 +1992,7 @@ function ToolButton({
   );
 }
 
-function QuitModal({ onContinue, onFinish }: { onContinue: () => void; onFinish: () => void }) {
-  return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.65)',
-        zIndex: 300,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        animation: 'fadeIn 200ms ease',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 360,
-          background: C.bg,
-          border: `1px solid ${C.line2}`,
-          borderRadius: 16,
-          padding: 22,
-        }}
-      >
-        <div style={{ fontFamily: F_DISP, fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Завершить поездку?</div>
-        <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.08em', marginBottom: 18 }}>
-          Прогресс сохранится автоматически.
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onContinue}
-            style={{
-              flex: 1,
-              height: 48,
-              background: 'transparent',
-              border: `1px solid ${C.line2}`,
-              color: C.ink,
-              borderRadius: 10,
-              fontFamily: F_DISP,
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
-            Продолжить
-          </button>
-          <button
-            onClick={onFinish}
-            style={{
-              flex: 1,
-              height: 48,
-              background: C.danger,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 10,
-              fontFamily: F_DISP,
-              fontSize: 14,
-              fontWeight: 700,
-            }}
-          >
-            Завершить
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// QuitModal removed — replaced by unified RideModal
 
 function LayerPopover({
   layer,
@@ -2123,7 +2053,13 @@ function LayerPopover({
   );
 }
 
-function ArrivedOverlay({
+/**
+ * RideModal — единая модалка для ручного стопа и прибытия.
+ * arrived=true  → заголовок «Прибыли!», мини-карта, статистика, имя поездки, 3 кнопки
+ * arrived=false → заголовок «Остановка», статистика, 4 кнопки (+ «Продолжить»)
+ */
+function RideModal({
+  arrived,
   ridden,
   time,
   avgMps,
@@ -2137,7 +2073,9 @@ function ArrivedOverlay({
   onFinish,
   onNewTarget,
   onGoHome,
+  onContinue,
 }: {
+  arrived: boolean;
   ridden: number;
   time: number;
   avgMps: number;
@@ -2151,175 +2089,74 @@ function ArrivedOverlay({
   onFinish: () => void;
   onNewTarget: () => void;
   onGoHome: (() => void) | null;
+  onContinue: (() => void) | null;
 }) {
   const dist = fmtDist(ridden, units);
   const avg = fmtSpeed(avgMps, units);
   const max = fmtSpeed(maxMps, units);
-  const mapRef = useRef<HTMLDivElement | null>(null);
+  const miniMapRef = useRef<HTMLDivElement | null>(null);
   const mlMapRef = useRef<MlMap | null>(null);
-  // Замораживаем trail и target при монтировании — GPS продолжает работать
-  // после прибытия и trail обновляется, что пересоздавало карту каждую секунду.
   const frozenTrail = useRef(trail);
   const frozenTarget = useRef(target);
 
+  // Мини-карта — только при arrived (при ручном стопе не нужна).
   useEffect(() => {
-    if (!mapRef.current || mlMapRef.current) return;
-    const trail = frozenTrail.current;
-    const target = frozenTarget.current;
+    if (!arrived) return;
+    if (!miniMapRef.current || mlMapRef.current) return;
+    const tr = frozenTrail.current;
+    const tg = frozenTarget.current;
     const m = new maplibregl.Map({
-      container: mapRef.current,
+      container: miniMapRef.current,
       style: styleFor('sat'),
-      center: [target.lng, target.lat],
+      center: [tg.lng, tg.lat],
       zoom: 13,
       attributionControl: false,
       interactive: false,
     });
     mlMapRef.current = m;
 
-    const lastTrailPt = trail.length > 0 ? trail[trail.length - 1] : null;
+    const lastTrailPt = tr.length > 0 ? tr[tr.length - 1] : null;
 
-    // ── Маркер цели: простой DOM-элемент, добавляется сразу (не ждёт load).
-    // Это гарантирует видимость даже если стиль карты не загрузился.
+    // Маркер цели — DOM.
     const tgEl = document.createElement('div');
-    tgEl.style.cssText = [
-      `width:22px`,
-      `height:22px`,
-      `border-radius:50%`,
-      `background:${C.target}`,
-      `border:3px solid #fff`,
-      `box-shadow:0 0 0 2px ${C.target},0 0 12px ${C.glow}`,
-      `pointer-events:none`,
-    ].join(';');
-    new maplibregl.Marker({ element: tgEl, anchor: 'center' })
-      .setLngLat([target.lng, target.lat])
-      .addTo(m);
+    tgEl.style.cssText = `width:22px;height:22px;border-radius:50%;background:${C.target};border:3px solid #fff;box-shadow:0 0 0 2px ${C.target},0 0 12px ${C.glow};pointer-events:none`;
+    new maplibregl.Marker({ element: tgEl, anchor: 'center' }).setLngLat([tg.lng, tg.lat]).addTo(m);
 
-    // Маркер старта — тоже сразу.
-    if (trail.length > 0) {
+    // Маркер старта.
+    if (tr.length > 0) {
       const stEl = document.createElement('div');
-      stEl.style.cssText = [
-        `width:14px`,
-        `height:14px`,
-        `border-radius:50%`,
-        `background:${C.ok}`,
-        `border:2px solid #fff`,
-        `box-shadow:0 0 8px ${C.okGlow}`,
-        `pointer-events:none`,
-      ].join(';');
-      new maplibregl.Marker({ element: stEl, anchor: 'center' })
-        .setLngLat([trail[0].lng, trail[0].lat])
-        .addTo(m);
+      stEl.style.cssText = `width:14px;height:14px;border-radius:50%;background:${C.ok};border:2px solid #fff;box-shadow:0 0 8px ${C.okGlow};pointer-events:none`;
+      new maplibregl.Marker({ element: stEl, anchor: 'center' }).setLngLat([tr[0].lng, tr[0].lat]).addTo(m);
     }
 
     m.on('load', () => {
-      // Зелёный пунктирный трек.
-      if (trail.length > 1) {
-        m.addSource('trip', {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: trail.map((p) => [p.lng, p.lat]) },
-            properties: {},
-          },
-        });
-        m.addLayer({
-          id: 'trip-line',
-          type: 'line',
-          source: 'trip',
-          paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.9, 'line-dasharray': [2, 3] },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        });
+      if (tr.length > 1) {
+        m.addSource('trip', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: tr.map(p => [p.lng, p.lat]) }, properties: {} } });
+        m.addLayer({ id: 'trip-line', type: 'line', source: 'trip', paint: { 'line-color': C.ok, 'line-width': 3, 'line-opacity': 0.9, 'line-dasharray': [2, 3] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
       }
-      // Оранжевый пунктир «последняя точка → цель».
       if (lastTrailPt) {
-        m.addSource('vector', {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: [[lastTrailPt.lng, lastTrailPt.lat], [target.lng, target.lat]],
-            },
-            properties: {},
-          },
-        });
-        m.addLayer({
-          id: 'vector-line',
-          type: 'line',
-          source: 'vector',
-          paint: { 'line-color': C.target, 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [3, 3] },
-        });
+        m.addSource('vector', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[lastTrailPt.lng, lastTrailPt.lat], [tg.lng, tg.lat]] }, properties: {} } });
+        m.addLayer({ id: 'vector-line', type: 'line', source: 'vector', paint: { 'line-color': C.target, 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [3, 3] } });
       }
-      // Маркер цели — circle layer (рисуется на canvas, без DOM-позиционирования).
-      m.addSource('target-pt', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
-      });
-      // Пульс-кольцо (большой полупрозрачный круг).
-      m.addLayer({
-        id: 'target-halo',
-        type: 'circle',
-        source: 'target-pt',
-        paint: {
-          'circle-radius': 18,
-          'circle-color': 'transparent',
-          'circle-stroke-width': 2,
-          'circle-stroke-color': C.target,
-          'circle-stroke-opacity': 0.65,
-        },
-      });
-      // Внутренний заполненный круг (прицел).
-      m.addLayer({
-        id: 'target-dot',
-        type: 'circle',
-        source: 'target-pt',
-        paint: {
-          'circle-radius': 7,
-          'circle-color': C.target,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': C.bg,
-          'circle-opacity': 0.95,
-        },
-      });
-      // Маркер старта.
-      if (trail.length > 0) {
-        const start = trail[0];
-        m.addSource('start-pt', {
-          type: 'geojson',
-          data: { type: 'Feature', geometry: { type: 'Point', coordinates: [start.lng, start.lat] }, properties: {} },
-        });
-        m.addLayer({
-          id: 'start-dot',
-          type: 'circle',
-          source: 'start-pt',
-          paint: {
-            'circle-radius': 6,
-            'circle-color': C.ok,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': C.bg,
-          },
-        });
+      m.addSource('target-pt', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [tg.lng, tg.lat] }, properties: {} } });
+      m.addLayer({ id: 'target-halo', type: 'circle', source: 'target-pt', paint: { 'circle-radius': 18, 'circle-color': 'transparent', 'circle-stroke-width': 2, 'circle-stroke-color': C.target, 'circle-stroke-opacity': 0.65 } });
+      m.addLayer({ id: 'target-dot', type: 'circle', source: 'target-pt', paint: { 'circle-radius': 7, 'circle-color': C.target, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg, 'circle-opacity': 0.95 } });
+      if (tr.length > 0) {
+        const start = tr[0];
+        m.addSource('start-pt', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [start.lng, start.lat] }, properties: {} } });
+        m.addLayer({ id: 'start-dot', type: 'circle', source: 'start-pt', paint: { 'circle-radius': 6, 'circle-color': C.ok, 'circle-stroke-width': 2, 'circle-stroke-color': C.bg } });
       }
     });
 
-    // FitBounds — сразу, не ждём load (работает на пустой карте).
-    if (trail.length > 0) {
-      const lngs = [target.lng, ...trail.map((p) => p.lng)];
-      const lats = [target.lat, ...trail.map((p) => p.lat)];
-      m.fitBounds(
-        [
-          [Math.min(...lngs), Math.min(...lats)],
-          [Math.max(...lngs), Math.max(...lats)],
-        ],
-        { padding: 32, animate: false, maxZoom: 16 },
-      );
+    if (tr.length > 0) {
+      const lngs = [tg.lng, ...tr.map(p => p.lng)];
+      const lats = [tg.lat, ...tr.map(p => p.lat)];
+      m.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 32, animate: false, maxZoom: 16 });
     }
-    return () => {
-      m.remove();
-      mlMapRef.current = null;
-    };
+    return () => { m.remove(); mlMapRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // пустые deps — карта создаётся один раз, trail/target зафиксированы в ref
+  }, [arrived]);
+
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -2337,50 +2174,46 @@ function ArrivedOverlay({
     >
       <div style={{ flex: 1, minHeight: 8 }} />
 
-      {/* Mini-map: маршрут + цель */}
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: 360,
-          height: 180,
-          borderRadius: 14,
-          overflow: 'hidden',
-          border: `1px solid ${C.line2}`,
-          marginBottom: 14,
-        }}
-      >
-        <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} />
+      {/* Mini-map — только при arrived */}
+      {arrived && (
         <div
           style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            background: C.target,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: `0 0 16px ${C.glow}`,
+            position: 'relative',
+            width: '100%',
+            maxWidth: 360,
+            height: 180,
+            borderRadius: 14,
+            overflow: 'hidden',
+            border: `1px solid ${C.line2}`,
+            marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 18, color: '#fff' }}>✓</span>
+          <div ref={miniMapRef} style={{ position: 'absolute', inset: 0 }} />
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: C.target,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: `0 0 16px ${C.glow}`,
+            }}
+          >
+            <span style={{ fontSize: 18, color: '#fff' }}>✓</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ fontFamily: F_DISP, fontSize: 28, fontWeight: 600, marginBottom: 4 }}>Прибыли!</div>
+      <div style={{ fontFamily: F_DISP, fontSize: 28, fontWeight: 600, marginBottom: 4 }}>
+        {arrived ? 'Прибыли!' : 'Остановка'}
+      </div>
       {targetName && (
-        <div
-          style={{
-            fontFamily: F_MONO,
-            fontSize: 11,
-            letterSpacing: '0.1em',
-            color: C.inkDim,
-            marginBottom: 16,
-          }}
-        >
+        <div style={{ fontFamily: F_MONO, fontSize: 11, letterSpacing: '0.1em', color: C.inkDim, marginBottom: 16 }}>
           {targetName}
         </div>
       )}
@@ -2402,25 +2235,29 @@ function ArrivedOverlay({
         <Stat label="Макс." value={`${max.v} ${max.u}`} />
       </div>
 
-      <input
-        value={name}
-        placeholder="Имя поездки"
-        onChange={(e) => onName(e.target.value)}
-        style={{
-          width: '100%',
-          maxWidth: 360,
-          height: 44,
-          background: C.bg2,
-          color: C.ink,
-          border: `1px solid ${C.line2}`,
-          borderRadius: 10,
-          padding: '0 12px',
-          fontFamily: F_DISP,
-          fontSize: 13,
-          marginBottom: 14,
-        }}
-      />
+      {/* Имя поездки — только при arrived */}
+      {arrived && (
+        <input
+          value={name}
+          placeholder="Имя поездки"
+          onChange={(e) => onName(e.target.value)}
+          style={{
+            width: '100%',
+            maxWidth: 360,
+            height: 44,
+            background: C.bg2,
+            color: C.ink,
+            border: `1px solid ${C.line2}`,
+            borderRadius: 10,
+            padding: '0 12px',
+            fontFamily: F_DISP,
+            fontSize: 13,
+            marginBottom: 14,
+          }}
+        />
+      )}
 
+      {/* Buttons */}
       <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 360, marginBottom: 8 }}>
         <button
           onClick={onFinish}
@@ -2471,9 +2308,31 @@ function ArrivedOverlay({
             fontFamily: F_DISP,
             fontSize: 13,
             fontWeight: 600,
+            marginBottom: 8,
           }}
         >
           ↩ Вернуться к старту
+        </button>
+      )}
+
+      {/* Продолжить — только при ручном стопе */}
+      {onContinue && (
+        <button
+          onClick={onContinue}
+          style={{
+            width: '100%',
+            maxWidth: 360,
+            height: 44,
+            background: 'transparent',
+            color: C.inkDim,
+            border: `1px solid ${C.line}`,
+            borderRadius: 10,
+            fontFamily: F_DISP,
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          Продолжить поездку
         </button>
       )}
       <div style={{ flex: 1 }} />
