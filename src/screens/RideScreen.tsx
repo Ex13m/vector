@@ -53,8 +53,17 @@ type Props = {
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
   onExit: () => void;
-  onReverseRide: (target: LatLng, trail: TrailPoint[]) => void;
   onJournal: () => void;
+  /** Continuation: «Новая цель» — передаёт трек + статистику, переход к выбору цели */
+  onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => void;
+  /** Continuation: «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE */
+  onContinueHome: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => void;
+  /** Накопленная дистанция из предыдущего сегмента (continuation) */
+  contRiddenM: number;
+  /** Накопленное время из предыдущего сегмента (continuation) */
+  contElapsedSec: number;
+  /** Макс скорость из предыдущего сегмента (continuation) */
+  contSpeedMax: number;
 };
 
 const ARRIVED_M = 30;
@@ -71,8 +80,12 @@ export default function RideScreen({
   onSettings,
   onSettingsChange,
   onExit,
-  onReverseRide,
   onJournal,
+  onContinuePick,
+  onContinueHome,
+  contRiddenM,
+  contElapsedSec,
+  contSpeedMax,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -96,7 +109,7 @@ export default function RideScreen({
   const [autoFollow, setAutoFollow] = useState(true);
   // lockView=true: ручные жесты (pan/rotate) ЗАБЛОКИРОВАНЫ, только zoom.
   const [lockView, setLockView] = useState(false);
-  const [time, setTime] = useState(savedSession?.elapsedSec ?? 0);
+  const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
   const [paused, setPaused] = useState(savedSession?.paused ?? false);
   const [silenced, setSilenced] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
@@ -125,7 +138,7 @@ export default function RideScreen({
   const transitionHandlerRef = useRef<(sig: TransitionSignal) => void>(() => {});
 
   const startedAtRef = useRef<number>(savedSession?.startedAt ?? Date.now());
-  const speedMaxRef = useRef(savedSession?.speedMaxMps ?? 0);
+  const speedMaxRef = useRef(savedSession?.speedMaxMps ?? contSpeedMax);
   const lastVoiceRef = useRef(0);
   const lastGpsAtRef = useRef(0);
   // ── Incremental ridden accumulator: считаем дельту в GPS-callback вместо
@@ -144,6 +157,8 @@ export default function RideScreen({
       riddenRef.current = total;
       lastTrailPointRef.current = initial[initial.length - 1];
     }
+    // Continuation: добавляем дистанцию из предыдущих сегментов.
+    riddenRef.current += contRiddenM;
   }
   const [riddenM, setRiddenM] = useState<number>(() => riddenRef.current);
   const longPressTimer = useRef<number | null>(null);
@@ -1650,20 +1665,21 @@ export default function RideScreen({
           targetName={targetName}
           target={target}
           trail={trailRef.current}
-          onJournal={() => {
+          onFinish={() => {
             haptic('light', settings.haptics);
             onJournal();
           }}
-          onNew={() => {
+          onNewTarget={() => {
             haptic('medium', settings.haptics);
-            onExit();
+            const tr = trailRef.current;
+            onContinuePick(tr, ridden, time, speedMaxRef.current);
           }}
-          onReverse={
+          onGoHome={
             trailRef.current.length > 0
               ? () => {
                   haptic('medium', settings.haptics);
                   const tr = trailRef.current;
-                  onReverseRide({ lat: tr[0].lat, lng: tr[0].lng }, tr);
+                  onContinueHome(tr, ridden, time, speedMaxRef.current);
                 }
               : null
           }
@@ -2108,9 +2124,9 @@ function ArrivedOverlay({
   targetName,
   target,
   trail,
-  onJournal,
-  onNew,
-  onReverse,
+  onFinish,
+  onNewTarget,
+  onGoHome,
 }: {
   ridden: number;
   time: number;
@@ -2122,9 +2138,9 @@ function ArrivedOverlay({
   targetName: string | null;
   target: LatLng;
   trail: TrailPoint[];
-  onJournal: () => void;
-  onNew: () => void;
-  onReverse: (() => void) | null;
+  onFinish: () => void;
+  onNewTarget: () => void;
+  onGoHome: (() => void) | null;
 }) {
   const dist = fmtDist(ridden, units);
   const avg = fmtSpeed(avgMps, units);
@@ -2397,7 +2413,7 @@ function ArrivedOverlay({
 
       <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 360, marginBottom: 8 }}>
         <button
-          onClick={onJournal}
+          onClick={onFinish}
           style={{
             flex: 1,
             height: 48,
@@ -2410,10 +2426,10 @@ function ArrivedOverlay({
             fontWeight: 600,
           }}
         >
-          Журнал
+          Завершить
         </button>
         <button
-          onClick={onNew}
+          onClick={onNewTarget}
           style={{
             flex: 1,
             height: 48,
@@ -2431,9 +2447,9 @@ function ArrivedOverlay({
         </button>
       </div>
 
-      {onReverse && (
+      {onGoHome && (
         <button
-          onClick={onReverse}
+          onClick={onGoHome}
           style={{
             width: '100%',
             maxWidth: 360,

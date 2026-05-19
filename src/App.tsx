@@ -13,6 +13,7 @@ import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
+import type { TrailPoint } from './lib/storage';
 import { startHeading } from './lib/orientation';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
@@ -88,6 +89,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   // При выходе на Pick из Журнала — попросить открыть sheet на табе trips.
   const [openJournal, setOpenJournal] = useState(false);
+  // Continuation: данные для продолжения поездки (новая цель / вернуться к старту).
+  const [contTrail, setContTrail] = useState<TrailPoint[] | null>(null);
+  const [contRiddenM, setContRiddenM] = useState(0);
+  const [contElapsedSec, setContElapsedSec] = useState(0);
+  const [contSpeedMax, setContSpeedMax] = useState(0);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => {
@@ -127,10 +133,15 @@ export default function App() {
     setTarget(tg);
     setTargetName(name);
     setReverse(false);
-    setResumeTrail(null);
+    // При продолжении — прокидываем существующий трек.
+    if (contTrail) {
+      setResumeTrail(contTrail);
+    } else {
+      setResumeTrail(null);
+    }
     setPickBox(box);
     setScreen('cache');
-  }, []);
+  }, [contTrail]);
 
   const goRide = useCallback(() => setScreen('ride'), []);
   const goPick = useCallback(() => {
@@ -140,6 +151,10 @@ export default function App() {
     setTargetName(null);
     setResumeTrail(null);
     setReverse(false);
+    setContTrail(null);
+    setContRiddenM(0);
+    setContElapsedSec(0);
+    setContSpeedMax(0);
   }, []);
   const goPickJournal = useCallback(() => {
     clearRideSession();
@@ -149,15 +164,52 @@ export default function App() {
     setTargetName(null);
     setResumeTrail(null);
     setReverse(false);
+    setContTrail(null);
+    setContRiddenM(0);
+    setContElapsedSec(0);
+    setContSpeedMax(0);
   }, []);
 
-  const goReverseRide = useCallback(
-    (tg: LatLng, trail: Array<{ lat: number; lng: number; t: number }>) => {
-      setTarget(tg);
+  // ── Continuation: продолжение поездки с накопленным треком.
+  // «Новая цель» — открывает PickScreen с треком на карте.
+  const goContinuePick = useCallback(
+    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => {
+      clearRideSession();
+      setContTrail(trail);
+      setContRiddenM(riddenM);
+      setContElapsedSec(elapsedSec);
+      setContSpeedMax(speedMax);
+      setTarget(null);
+      setTargetName(null);
+      setResumeTrail(null);
+      setReverse(false);
+      setScreen('pick');
+    },
+    [],
+  );
+
+  // «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE.
+  const goContinueHome = useCallback(
+    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => {
+      if (trail.length === 0) return;
+      resumeWakeAudio();
+      const start = trail[0];
+      setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
-      setReverse(true);
+      setReverse(false);
       setResumeTrail(trail);
-      setScreen('ride');
+      setContTrail(null); // не нужен на PickScreen
+      setContRiddenM(riddenM);
+      setContElapsedSec(elapsedSec);
+      setContSpeedMax(speedMax);
+      // Нужен box для CacheScreen
+      const lngs = trail.map(p => p.lng).concat(start.lng);
+      const lats = trail.map(p => p.lat).concat(start.lat);
+      setPickBox({
+        west: Math.min(...lngs), south: Math.min(...lats),
+        east: Math.max(...lngs), north: Math.max(...lats),
+      });
+      setScreen('cache');
     },
     [],
   );
@@ -201,8 +253,12 @@ export default function App() {
           onSettings={() => setShowSettings(true)}
           onSettingsChange={updateSettings}
           onExit={goPick}
-          onReverseRide={goReverseRide}
           onJournal={goPickJournal}
+          onContinuePick={goContinuePick}
+          onContinueHome={goContinueHome}
+          contRiddenM={contRiddenM}
+          contElapsedSec={contElapsedSec}
+          contSpeedMax={contSpeedMax}
         />
       );
     }
@@ -215,9 +271,10 @@ export default function App() {
         onResumeTrip={onResumeTrip}
         openJournal={openJournal}
         onJournalConsumed={() => setOpenJournal(false)}
+        continuationTrail={contTrail}
       />
     );
-  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, goCache, goRide, goPick, goPickJournal, goReverseRide, onResumeTrip, updateSettings]);
+  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, contTrail, contRiddenM, contElapsedSec, contSpeedMax, goCache, goRide, goPick, goPickJournal, goContinuePick, goContinueHome, onResumeTrip, updateSettings]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

@@ -37,6 +37,8 @@ type Props = {
   /** Открыть Saved sheet сразу на табе «Поездки» (из Журнала на Arrived). */
   openJournal?: boolean;
   onJournalConsumed?: () => void;
+  /** Трек из предыдущего сегмента (continuation) — рисуется на карте. */
+  continuationTrail?: TrailPoint[] | null;
 };
 
 export default function PickScreen({
@@ -47,6 +49,7 @@ export default function PickScreen({
   onResumeTrip,
   openJournal = false,
   onJournalConsumed,
+  continuationTrail = null,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -142,12 +145,14 @@ export default function PickScreen({
       map.setBearing(0);
       addVectorSource(map);
       addTargetSource(map);
+      addContTrailSource(map);
     });
 
     map.on('styledata', () => {
       map.setBearing(0);
       addVectorSource(map);
       addTargetSource(map);
+      addContTrailSource(map);
     });
 
     map.on('zoom', () => setMapZoom(Math.round(map.getZoom())));
@@ -163,6 +168,33 @@ export default function PickScreen({
   useEffect(() => {
     if (mapRef.current) mapRef.current.setStyle(styleFor(settings.layer));
   }, [settings.layer]);
+
+  // ── Continuation trail: рисуем зелёный пунктирный трек из предыдущего сегмента.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const src = map.getSource('cont-trail') as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (continuationTrail && continuationTrail.length > 1) {
+      src.setData({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: continuationTrail.map(p => [p.lng, p.lat]),
+        },
+        properties: {},
+      });
+      // Подгоняем камеру чтобы виден весь трек.
+      const lngs = continuationTrail.map(p => p.lng);
+      const lats = continuationTrail.map(p => p.lat);
+      map.fitBounds(
+        [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+        { padding: 60, animate: false, maxZoom: 16 },
+      );
+    } else {
+      src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} });
+    }
+  }, [continuationTrail]);
 
   // Маркер «вы» — ромб-стрелка с поворотом на цель (или фиксированный «вверх» если нет цели).
   useEffect(() => {
@@ -960,6 +992,29 @@ function LayerPopover({ layer, onPick }: { layer: Layer; onPick: (l: Layer) => v
       })}
     </div>
   );
+}
+
+function addContTrailSource(map: MlMap): void {
+  if (!map.getSource('cont-trail')) {
+    map.addSource('cont-trail', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+    });
+  }
+  if (!map.getLayer('cont-trail-line')) {
+    map.addLayer({
+      id: 'cont-trail-line',
+      type: 'line',
+      source: 'cont-trail',
+      paint: {
+        'line-color': C.ok,
+        'line-width': 3,
+        'line-opacity': 0.7,
+        'line-dasharray': [2, 3],
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    });
+  }
 }
 
 function addVectorSource(map: MlMap): void {
