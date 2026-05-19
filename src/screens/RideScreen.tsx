@@ -112,6 +112,8 @@ export default function RideScreen({
   const [lockView, setLockView] = useState(true);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
   const [paused, setPaused] = useState(savedSession?.paused ?? false);
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
   const [silenced, setSilenced] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [arrived, setArrived] = useState(false);
@@ -312,7 +314,7 @@ export default function RideScreen({
         if (signal) transitionHandlerRef.current(signal);
 
         // ── Запись трека: только RIDING и SHORT_STOP
-        if (paused) return;
+        if (pausedRef.current) return;
         const phase = nextState.phase;
         if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
         // Дедупликация и accumulator ridden вне setTrail callback —
@@ -366,7 +368,8 @@ export default function RideScreen({
       navigator.geolocation.clearWatch(id);
       if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
     };
-  }, [paused]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // GPS watch создаётся один раз, paused проверяется через pausedRef
 
   // ── GPS-lost watchdog: если давно не было фикса — поднять флаг.
   useEffect(() => {
