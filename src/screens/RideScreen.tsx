@@ -160,6 +160,11 @@ export default function RideScreen({
   // пока не отъедем. Без этого GPS-джиттер мгновенно триггерит «приехали».
   const startedAtTargetRef = useRef<boolean | null>(null); // null = ещё не инициализирован
 
+  // ── GPS prediction refs: скорость и bearing для интерполяции камеры между фиксами.
+  const predSpeedRef = useRef(0);        // м/с
+  const predBearingRef = useRef(0);      // градусы — курс движения
+  const lastGpsTimeRef = useRef(0);      // timestamp последнего фикса (для dt)
+
   // ── Refs для 60Hz alignment-haptic в rawHandler (в обход React).
   // Haptic наведения должен срабатывать точно в момент визуального совмещения
   // с целью — на полной частоте компаса (~60 Hz), а не на 16 Hz React-state.
@@ -310,13 +315,18 @@ export default function RideScreen({
         t.push(p);
 
         // Производные: bearing и speed — лёгкие state, re-render только HUD.
-        setTrailBearing(smoothedBearingFromTrail(t, 15));
+        const tb = smoothedBearingFromTrail(t, 15);
+        setTrailBearing(tb);
         if (t.length >= 2) {
           const a = t[t.length - 2], b = t[t.length - 1];
           const dt = (b.t - a.t) / 1000;
           const spd = (dt >= 0.5 && dt <= 30) ? Math.min(40, distanceM(a, b) / dt) : 0;
           setLiveSpeedMps(spd);
           if (spd > speedMaxRef.current) speedMaxRef.current = spd;
+          // GPS prediction refs — для интерполяции камеры/маркера между фиксами.
+          predSpeedRef.current = spd;
+          if (tb !== null) predBearingRef.current = tb;
+          lastGpsTimeRef.current = performance.now();
         }
 
         // Обновляем trail на карте напрямую (без React re-render).
@@ -792,8 +802,27 @@ export default function RideScreen({
       if (document.hidden) return; // экран погашен — не тратим CPU
       const tPos = camTargetPosRef.current;
       if (!tPos) return;
-      const dLng = tPos.lng - curLng;
-      const dLat = tPos.lat - curLat;
+
+      // ── GPS prediction: между фиксами (1 Hz) экстраполируем позицию
+      // по скорости и курсу. Камера и маркер двигаются 60 fps плавно.
+      // Когда приходит реальный фикс — camTargetPosRef обновляется,
+      // prediction-dt обнуляется, маркер плавно корректируется к реальности.
+      const spd = predSpeedRef.current;
+      const brg = predBearingRef.current;
+      const dtSec = (performance.now() - lastGpsTimeRef.current) / 1000;
+      // Предсказываем только вперёд до 1.5с, при скорости >0.5 м/с (едем).
+      let predLng = tPos.lng;
+      let predLat = tPos.lat;
+      if (spd > 0.5 && dtSec > 0 && dtSec < 1.5) {
+        const dist = spd * dtSec; // метры
+        const brgRad = (brg * Math.PI) / 180;
+        // ~111320 м/градус широты, ~111320*cos(lat) м/градус долготы
+        predLat += (dist * Math.cos(brgRad)) / 111320;
+        predLng += (dist * Math.sin(brgRad)) / (111320 * Math.cos((tPos.lat * Math.PI) / 180));
+      }
+
+      const dLng = predLng - curLng;
+      const dLat = predLat - curLat;
       // shortest-path delta bearing в [-180, 180]
       const dB = ((camTargetBearingRef.current - curBearing) % 360 + 540) % 360 - 180;
       if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7 && Math.abs(dB) < 0.05) return;
@@ -801,11 +830,8 @@ export default function RideScreen({
       curLat += dLat * POS_K;
       curBearing = (curBearing + dB * bearingKRef.current + 360) % 360;
       map.jumpTo({ center: [curLng, curLat], bearing: curBearing });
-      // Маркер «вы» — всегда на реальной GPS-позиции, не на интерполированной.
-      // Камера лерпится плавно, но маркер точен — иначе визуальный рассинхрон
-      // с треком (трек из реальных GPS-точек, маркер из лерпа = хвост отставания).
-      const realPos = camTargetPosRef.current;
-      if (realPos) meMarkerRef.current?.setLngLat([realPos.lng, realPos.lat]);
+      // Маркер — на предсказанной позиции (плавное движение между GPS-фиксами).
+      meMarkerRef.current?.setLngLat([predLng, predLat]);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
