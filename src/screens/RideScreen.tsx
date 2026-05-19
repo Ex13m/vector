@@ -108,7 +108,8 @@ export default function RideScreen({
   // Отключается при ручных жестах (pan/rotate), включается кнопкой центровки.
   const [autoFollow, setAutoFollow] = useState(true);
   // lockView=true: ручные жесты (pan/rotate) ЗАБЛОКИРОВАНЫ, только zoom.
-  const [lockView, setLockView] = useState(false);
+  // По умолчанию включён — телефон в кармане не сбросит карту случайным касанием.
+  const [lockView, setLockView] = useState(true);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
   const [paused, setPaused] = useState(savedSession?.paused ?? false);
   const [silenced, setSilenced] = useState(false);
