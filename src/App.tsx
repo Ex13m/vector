@@ -94,6 +94,8 @@ export default function App() {
   const [contRiddenM, setContRiddenM] = useState(0);
   const [contElapsedSec, setContElapsedSec] = useState(0);
   const [contSpeedMax, setContSpeedMax] = useState(0);
+  // Маркеры точек смены маршрута (где пользователь переключил цель).
+  const [contWaypoints, setContWaypoints] = useState<LatLng[]>([]);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => {
@@ -155,6 +157,7 @@ export default function App() {
     setContRiddenM(0);
     setContElapsedSec(0);
     setContSpeedMax(0);
+    setContWaypoints([]);
   }, []);
   const goPickJournal = useCallback(() => {
     clearRideSession();
@@ -168,17 +171,19 @@ export default function App() {
     setContRiddenM(0);
     setContElapsedSec(0);
     setContSpeedMax(0);
+    setContWaypoints([]);
   }, []);
 
   // ── Continuation: продолжение поездки с накопленным треком.
   // «Новая цель» — открывает PickScreen с треком на карте.
   const goContinuePick = useCallback(
-    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => {
+    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => {
       clearRideSession();
       setContTrail(trail);
       setContRiddenM(riddenM);
       setContElapsedSec(elapsedSec);
       setContSpeedMax(speedMax);
+      setContWaypoints(waypoints);
       setTarget(null);
       setTargetName(null);
       setResumeTrail(null);
@@ -190,13 +195,14 @@ export default function App() {
 
   // «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE.
   const goContinueHome = useCallback(
-    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => {
+    (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => {
       if (trail.length === 0) return;
       resumeWakeAudio();
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
       setReverse(false);
+      setContWaypoints(waypoints);
       setResumeTrail(trail);
       setContTrail(null); // не нужен на PickScreen
       setContRiddenM(riddenM);
@@ -259,6 +265,7 @@ export default function App() {
           contRiddenM={contRiddenM}
           contElapsedSec={contElapsedSec}
           contSpeedMax={contSpeedMax}
+          contWaypoints={contWaypoints}
         />
       );
     }
@@ -272,9 +279,10 @@ export default function App() {
         openJournal={openJournal}
         onJournalConsumed={() => setOpenJournal(false)}
         continuationTrail={contTrail}
+        continuationWaypoints={contWaypoints}
       />
     );
-  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, contTrail, contRiddenM, contElapsedSec, contSpeedMax, goCache, goRide, goPick, goPickJournal, goContinuePick, goContinueHome, onResumeTrip, updateSettings]);
+  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, contTrail, contWaypoints, contRiddenM, contElapsedSec, contSpeedMax, goCache, goRide, goPick, goPickJournal, goContinuePick, goContinueHome, onResumeTrip, updateSettings]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

@@ -39,6 +39,8 @@ type Props = {
   onJournalConsumed?: () => void;
   /** Трек из предыдущего сегмента (continuation) — рисуется на карте. */
   continuationTrail?: TrailPoint[] | null;
+  /** Маркеры точек смены маршрута (continuation). */
+  continuationWaypoints?: LatLng[];
 };
 
 export default function PickScreen({
@@ -50,6 +52,7 @@ export default function PickScreen({
   openJournal = false,
   onJournalConsumed,
   continuationTrail = null,
+  continuationWaypoints = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -58,9 +61,11 @@ export default function PickScreen({
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
   const distancePillRef = useRef<Marker | null>(null);
-  // Ref для доступа к continuationTrail из map.on('load') callback.
+  // Ref для доступа к continuationTrail / waypoints из map.on('load') callback.
   const contTrailRef = useRef(continuationTrail);
   contTrailRef.current = continuationTrail;
+  const contWpRef = useRef(continuationWaypoints);
+  contWpRef.current = continuationWaypoints;
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [compassHeading, setCompassHeading] = useState<number | null>(null);
@@ -149,6 +154,7 @@ export default function PickScreen({
       addVectorSource(map);
       addTargetSource(map);
       addContTrailSource(map);
+      addWaypointsSource(map, contWpRef.current);
       // Если есть continuation trail — сразу рисуем и подгоняем камеру.
       const ct = contTrailRef.current;
       if (ct && ct.length > 1) {
@@ -174,6 +180,7 @@ export default function PickScreen({
       addVectorSource(map);
       addTargetSource(map);
       addContTrailSource(map);
+      addWaypointsSource(map, contWpRef.current);
       // Перезаливаем continuation trail после смены стиля.
       const ct = contTrailRef.current;
       if (ct && ct.length > 1) {
@@ -1046,6 +1053,34 @@ function addContTrailSource(map: MlMap): void {
         'line-dasharray': [2, 3],
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
+    });
+  }
+}
+
+function addWaypointsSource(map: MlMap, waypoints: LatLng[]): void {
+  if (!map.getSource('cont-waypoints')) {
+    map.addSource('cont-waypoints', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: waypoints.map(w => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [w.lng, w.lat] },
+          properties: {},
+        })),
+      },
+    });
+  }
+  if (!map.getLayer('cont-waypoints-border')) {
+    map.addLayer({
+      id: 'cont-waypoints-border', type: 'circle', source: 'cont-waypoints',
+      paint: { 'circle-radius': 6, 'circle-color': '#0A0C0B', 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff', 'circle-opacity': 0.9, 'circle-stroke-opacity': 0.9 },
+    });
+  }
+  if (!map.getLayer('cont-waypoints-dot')) {
+    map.addLayer({
+      id: 'cont-waypoints-dot', type: 'circle', source: 'cont-waypoints',
+      paint: { 'circle-radius': 3, 'circle-color': '#ffffff', 'circle-opacity': 0.95 },
     });
   }
 }

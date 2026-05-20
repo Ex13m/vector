@@ -55,15 +55,17 @@ type Props = {
   onExit: () => void;
   onJournal: () => void;
   /** Continuation: «Новая цель» — передаёт трек + статистику, переход к выбору цели */
-  onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => void;
+  onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => void;
   /** Continuation: «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE */
-  onContinueHome: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number) => void;
+  onContinueHome: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => void;
   /** Накопленная дистанция из предыдущего сегмента (continuation) */
   contRiddenM: number;
   /** Накопленное время из предыдущего сегмента (continuation) */
   contElapsedSec: number;
   /** Макс скорость из предыдущего сегмента (continuation) */
   contSpeedMax: number;
+  /** Маркеры точек смены маршрута из предыдущих сегментов */
+  contWaypoints: LatLng[];
 };
 
 const ARRIVED_M = 30;
@@ -86,6 +88,7 @@ export default function RideScreen({
   contRiddenM,
   contElapsedSec,
   contSpeedMax,
+  contWaypoints,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -572,6 +575,44 @@ export default function RideScreen({
           },
         });
       }
+
+      // Маркеры смены маршрута (белые кружки на треке).
+      if (!map.getSource('waypoints')) {
+        map.addSource('waypoints', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: contWaypoints.map(w => ({
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [w.lng, w.lat] },
+              properties: {},
+            })),
+          },
+        });
+        map.addLayer({
+          id: 'waypoints-border',
+          type: 'circle',
+          source: 'waypoints',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#0A0C0B',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
+            'circle-opacity': 0.9,
+            'circle-stroke-opacity': 0.9,
+          },
+        });
+        map.addLayer({
+          id: 'waypoints-dot',
+          type: 'circle',
+          source: 'waypoints',
+          paint: {
+            'circle-radius': 3,
+            'circle-color': '#ffffff',
+            'circle-opacity': 0.95,
+          },
+        });
+      }
     });
 
     // При ручном жесте (pan или rotate) — выход из autoFollow.
@@ -642,6 +683,27 @@ export default function RideScreen({
             'circle-stroke-color': C.target,
             'circle-stroke-opacity': 0.6,
           },
+        });
+      }
+      if (!map.getSource('waypoints')) {
+        map.addSource('waypoints', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: contWaypoints.map(w => ({
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [w.lng, w.lat] },
+              properties: {},
+            })),
+          },
+        });
+        map.addLayer({
+          id: 'waypoints-border', type: 'circle', source: 'waypoints',
+          paint: { 'circle-radius': 6, 'circle-color': '#0A0C0B', 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff', 'circle-opacity': 0.9, 'circle-stroke-opacity': 0.9 },
+        });
+        map.addLayer({
+          id: 'waypoints-dot', type: 'circle', source: 'waypoints',
+          paint: { 'circle-radius': 3, 'circle-color': '#ffffff', 'circle-opacity': 0.95 },
         });
       }
     });
@@ -1687,7 +1749,8 @@ export default function RideScreen({
             setShowQuitModal(false);
             haptic('medium', settings.haptics);
             const tr = trailRef.current;
-            onContinuePick(tr, ridden, time, speedMaxRef.current);
+            const wp = me ? [...contWaypoints, me] : contWaypoints;
+            onContinuePick(tr, ridden, time, speedMaxRef.current, wp);
           }}
           onGoHome={
             trailRef.current.length > 0
@@ -1695,7 +1758,8 @@ export default function RideScreen({
                   setShowQuitModal(false);
                   haptic('medium', settings.haptics);
                   const tr = trailRef.current;
-                  onContinueHome(tr, ridden, time, speedMaxRef.current);
+                  const wp = me ? [...contWaypoints, me] : contWaypoints;
+                  onContinueHome(tr, ridden, time, speedMaxRef.current, wp);
                 }
               : null
           }
