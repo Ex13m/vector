@@ -1,0 +1,116 @@
+import groovy.xml.MarkupBuilder
+
+apply plugin: 'com.android.application'
+
+// ── Vector TWA configuration ──────────────────────────────────────────────────
+def twaManifest = [
+    applicationId:    'app.vector.cycling',
+    hostName:         'boisterous-heliotrope-499640.netlify.app',
+    launchUrl:        '/',
+    name:             'Vector',
+    themeColor:       '#0A0C0B',
+    navigationColor:  '#0A0C0B',
+    backgroundColor:  '#0A0C0B',
+    enableNotifications: false,
+    shortcuts: [],
+    splashScreenFadeOutDuration: 300,
+]
+
+android {
+    namespace 'app.vector.cycling'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId twaManifest.applicationId
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "0.5.43"
+
+        resValue "string", "appName", twaManifest.name
+
+        def launchUrl = "https://" + twaManifest.hostName + twaManifest.launchUrl
+        resValue "string", "launchUrl", launchUrl
+        resValue "string", "crosLaunchUrl", launchUrl
+        resValue "string", "hostName", twaManifest.hostName
+
+        resValue "string", "assetStatements", """
+            [{
+                "relation": ["delegate_permission/common.handle_all_urls"],
+                "target": {
+                    "namespace": "web",
+                    "site": "https://${twaManifest.hostName}"
+                }
+            }]"""
+
+        resValue "color", "colorPrimary", twaManifest.themeColor
+        resValue "color", "navigationColor", twaManifest.navigationColor
+        resValue "color", "backgroundColor", twaManifest.backgroundColor
+        resValue "string", "providerAuthority", twaManifest.applicationId + '.fileprovider'
+        resValue "bool", "enableNotification", twaManifest.enableNotifications.toString()
+        resValue "integer", "splashScreenFadeOutDuration", twaManifest.splashScreenFadeOutDuration.toString()
+
+        twaManifest.shortcuts.eachWithIndex { shortcut, index ->
+            resValue "string", "shortcut_name_$index", "$shortcut.name"
+            resValue "string", "shortcut_short_name_$index", "$shortcut.short_name"
+        }
+    }
+
+    signingConfigs {
+        // Debug signing for testing. Production will use a separate keystore.
+        debug {
+            // Uses default debug keystore
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            // For testing: use debug signing. Replace with real keystore for production.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+// Generate shortcuts.xml
+task generateShortcutsFile {
+    assert twaManifest.shortcuts.size() < 5, "Maximum 4 shortcuts allowed."
+
+    def shortcutsFile = new File("$projectDir/src/main/res/xml", "shortcuts.xml")
+    def xmlWriter = new StringWriter()
+    def xmlMarkup = new MarkupBuilder(new IndentPrinter(xmlWriter, "    ", true))
+
+    xmlMarkup.'shortcuts'('xmlns:android': 'http://schemas.android.com/apk/res/android') {
+        twaManifest.shortcuts.eachWithIndex { s, i ->
+            'shortcut'(
+                'android:shortcutId': 'shortcut' + i,
+                'android:enabled': 'true',
+                'android:icon': '@drawable/' + s.icon,
+                'android:shortcutShortLabel': '@string/shortcut_short_name_' + i,
+                'android:shortcutLongLabel': '@string/shortcut_name_' + i) {
+                'intent'(
+                    'android:action': 'android.intent.action.MAIN',
+                    'android:targetPackage': twaManifest.applicationId,
+                    'android:targetClass': 'com.google.androidbrowserhelper.trusted.LauncherActivity',
+                    'android:data': 'https://' + twaManifest.hostName + s.url)
+                'categories'('android:name': 'android.intent.category.LAUNCHER')
+            }
+        }
+    }
+    shortcutsFile.text = xmlWriter.toString() + '\n'
+}
+
+preBuild.dependsOn(generateShortcutsFile)
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

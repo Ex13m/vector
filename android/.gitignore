@@ -1,0 +1,15 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+# Generated icons (created by scripts/generate-icons.mjs)
+/app/src/main/res/mipmap-*/ic_launcher.png
+/app/src/main/res/drawable/splash.png

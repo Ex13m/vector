@@ -1,0 +1,72 @@
+name: Build APK (TWA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - android/**
+      - .github/workflows/build-apk.yml
+      - public/icon*.svg
+      - scripts/generate-icons.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Node + sharp: генерация PNG иконок из SVG ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate PNG icons from SVG
+        run: |
+          npm install sharp
+          node scripts/generate-icons.mjs
+
+      # ── JDK 17 ──
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ── Android SDK platform 34 ──
+      - name: Install Android SDK platform
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      # ── Gradle wrapper (генерируем если нет gradlew) ──
+      - name: Setup Gradle wrapper
+        working-directory: android
+        run: |
+          gradle wrapper --gradle-version 8.5
+
+      # ── Build debug APK ──
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vector-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # ── Release APK (signed with debug key — for testing) ──
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vector-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
