@@ -1,4 +1,4 @@
-name: Build APK (TWA)
+name: Build APK (Capacitor)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,11 @@ on:
     branches: [main]
     paths:
       - android/**
+      - src/**
       - .github/workflows/build-apk.yml
+      - capacitor.config.ts
+      - package.json
+      - vite.config.ts
       - public/icon*.svg
       - scripts/generate-icons.mjs
 
@@ -20,15 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Node + sharp: генерация PNG иконок из SVG ──
+      # ── Node 20 + dependencies ──
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Generate PNG icons from SVG ──
       - name: Generate PNG icons from SVG
-        run: |
-          npm install sharp
-          node scripts/generate-icons.mjs
+        run: node scripts/generate-icons.mjs
+
+      # ── Build web assets ──
+      - name: Build web assets
+        run: npm run build
+
+      # ── Capacitor sync (copies dist/ into android/app/src/main/assets/public/) ──
+      - name: Capacitor sync
+        run: npx cap sync android --inline
 
       # ── JDK 17 ──
       - uses: actions/setup-java@v4
@@ -36,16 +51,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ── Android SDK platform 34 ──
+      # ── Android SDK platform 35 ──
       - name: Install Android SDK platform
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
-
-      # ── Gradle wrapper (генерируем если нет gradlew) ──
-      - name: Setup Gradle wrapper
-        working-directory: android
-        run: |
-          gradle wrapper --gradle-version 8.5
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       # ── Build debug APK ──
       - name: Build debug APK

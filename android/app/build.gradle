@@ -1,117 +1,54 @@
-import groovy.xml.MarkupBuilder
-
 apply plugin: 'com.android.application'
 
-// ── Vector TWA configuration ──────────────────────────────────────────────────
-def twaManifest = [
-    applicationId:    'app.vector.cycling',
-    hostName:         'boisterous-heliotrope-499640.netlify.app',
-    launchUrl:        '/',
-    name:             'Vector',
-    themeColor:       '#0A0C0B',
-    navigationColor:  '#0A0C0B',
-    backgroundColor:  '#0A0C0B',
-    enableNotifications: false,
-    shortcuts: [],
-    splashScreenFadeOutDuration: 300,
-]
-
 android {
-    namespace 'app.vector.cycling'
-    compileSdk 34
-
+    namespace = "app.vector.cycling"
+    compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId twaManifest.applicationId
-        minSdk 21
-        targetSdk 34
+        applicationId "app.vector.cycling"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "0.5.43"
-
-        resValue "string", "appName", twaManifest.name
-
-        def launchUrl = "https://" + twaManifest.hostName + twaManifest.launchUrl
-        resValue "string", "launchUrl", launchUrl
-        resValue "string", "crosLaunchUrl", launchUrl
-        resValue "string", "hostName", twaManifest.hostName
-
-        resValue "string", "assetStatements", """
-            [{
-                "relation": ["delegate_permission/common.handle_all_urls"],
-                "target": {
-                    "namespace": "web",
-                    "site": "https://${twaManifest.hostName}"
-                }
-            }]"""
-
-        resValue "color", "colorPrimary", twaManifest.themeColor
-        resValue "color", "navigationColor", twaManifest.navigationColor
-        resValue "color", "backgroundColor", twaManifest.backgroundColor
-        resValue "string", "providerAuthority", twaManifest.applicationId + '.fileprovider'
-        resValue "bool", "enableNotification", twaManifest.enableNotifications.toString()
-        resValue "integer", "splashScreenFadeOutDuration", twaManifest.splashScreenFadeOutDuration.toString()
-
-        twaManifest.shortcuts.eachWithIndex { shortcut, index ->
-            resValue "string", "shortcut_name_$index", "$shortcut.name"
-            resValue "string", "shortcut_short_name_$index", "$shortcut.short_name"
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-
-    signingConfigs {
-        // Debug signing for testing. Production will use a separate keystore.
-        debug {
-            // Uses default debug keystore
-        }
-    }
-
     buildTypes {
         release {
-            minifyEnabled true
-            // For testing: use debug signing. Replace with real keystore for production.
-            signingConfig signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    lint {
-        abortOnError false
     }
 }
 
-// Generate shortcuts.xml
-task generateShortcutsFile {
-    assert twaManifest.shortcuts.size() < 5, "Maximum 4 shortcuts allowed."
-
-    def shortcutsFile = new File("$projectDir/src/main/res/xml", "shortcuts.xml")
-    def xmlWriter = new StringWriter()
-    def xmlMarkup = new MarkupBuilder(new IndentPrinter(xmlWriter, "    ", true))
-
-    xmlMarkup.'shortcuts'('xmlns:android': 'http://schemas.android.com/apk/res/android') {
-        twaManifest.shortcuts.eachWithIndex { s, i ->
-            'shortcut'(
-                'android:shortcutId': 'shortcut' + i,
-                'android:enabled': 'true',
-                'android:icon': '@drawable/' + s.icon,
-                'android:shortcutShortLabel': '@string/shortcut_short_name_' + i,
-                'android:shortcutLongLabel': '@string/shortcut_name_' + i) {
-                'intent'(
-                    'android:action': 'android.intent.action.MAIN',
-                    'android:targetPackage': twaManifest.applicationId,
-                    'android:targetClass': 'com.google.androidbrowserhelper.trusted.LauncherActivity',
-                    'android:data': 'https://' + twaManifest.hostName + s.url)
-                'categories'('android:name': 'android.intent.category.LAUNCHER')
-            }
-        }
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
-    shortcutsFile.text = xmlWriter.toString() + '\n'
 }
-
-preBuild.dependsOn(generateShortcutsFile)
 
 dependencies {
-    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

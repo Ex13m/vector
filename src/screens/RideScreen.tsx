@@ -36,6 +36,7 @@ import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
+import { startForegroundService, stopForegroundService, updateForegroundService } from '../lib/foregroundService';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -199,10 +200,16 @@ export default function RideScreen({
   useEffect(() => { hapticsRef.current = settings.haptics; }, [settings.haptics]);
 
   // ── Фоновый аудио + Media Session, чтобы голос не глох с погашенным экраном.
+  // На нативном Android: foreground service гарантирует работу с выключенным экраном.
+  // На PWA: wakeAudio + silent MP3 как запасной вариант.
   useEffect(() => {
     startWakeAudio();
     setupMediaSession('Vector · к цели');
-    return () => stopWakeAudio();
+    void startForegroundService();
+    return () => {
+      stopWakeAudio();
+      void stopForegroundService();
+    };
   }, []);
 
   // ── PRE_RIDE voice hint: озвучиваем один раз при маунте.
@@ -1036,8 +1043,10 @@ export default function RideScreen({
         settings.lang,
         settings.voiceURI,
       );
+      // Update foreground notification with current distance (native only, no-op on web)
+      void updateForegroundService(`${dist} to target · ${clockHM}`);
     };
-  }, [me, settings.lang, settings.voiceURI, clockHM, distM, etaMin, reverse]);
+  }, [me, settings.lang, settings.voiceURI, clockHM, dist, distM, etaMin, reverse]);
 
   // ── handleTransitionSignal — реакция на смену фазы state machine.
   // Хранится в ref, чтобы GPS-callback не зависел от state.
