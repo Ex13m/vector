@@ -514,59 +514,64 @@ export default function RideScreen({
 
     map.on('load', () => {
       // Трек (зелёный пунктир). При continuation — сразу показываем предыдущий путь.
-      const initialCoords: [number, number][] = trailRef.current.map(p => [p.lng, p.lat]);
-      trailCoordsRef.current = initialCoords;
-      map.addSource('trail', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: initialCoords }, properties: {} },
-      });
-      map.addLayer({
-        id: 'trail-line',
-        type: 'line',
-        source: 'trail',
-        paint: {
-          'line-color': C.ok,
-          'line-width': 3,
-          'line-opacity': 0.85,
-          'line-dasharray': [2, 3],
-        },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-      });
+      // Guard: styledata может сработать раньше load и уже создать source.
+      if (!map.getSource('trail')) {
+        map.addSource('trail', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: trailCoordsRef.current }, properties: {} },
+        });
+        map.addLayer({
+          id: 'trail-line',
+          type: 'line',
+          source: 'trail',
+          paint: {
+            'line-color': C.ok,
+            'line-width': 3,
+            'line-opacity': 0.85,
+            'line-dasharray': [2, 3],
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
+      }
 
       // Вектор «вы → цель» (оранжевый пунктир)
-      map.addSource('vector', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
-      });
-      map.addLayer({
-        id: 'vector-line',
-        type: 'line',
-        source: 'vector',
-        paint: {
-          'line-color': C.target,
-          'line-width': 2.5,
-          'line-opacity': 0.7,
-          'line-dasharray': [3, 3],
-        },
-      });
+      if (!map.getSource('vector')) {
+        map.addSource('vector', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        });
+        map.addLayer({
+          id: 'vector-line',
+          type: 'line',
+          source: 'vector',
+          paint: {
+            'line-color': C.target,
+            'line-width': 2.5,
+            'line-opacity': 0.7,
+            'line-dasharray': [3, 3],
+          },
+        });
+      }
 
       // Пульсирующее кольцо вокруг маркера цели (canvas-слой, добавляется при load).
-      map.addSource('target-pt', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
-      });
-      map.addLayer({
-        id: 'target-halo',
-        type: 'circle',
-        source: 'target-pt',
-        paint: {
-          'circle-radius': 22,
-          'circle-color': 'transparent',
-          'circle-stroke-width': 2,
-          'circle-stroke-color': C.target,
-          'circle-stroke-opacity': 0.6,
-        },
-      });
+      if (!map.getSource('target-pt')) {
+        map.addSource('target-pt', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'Point', coordinates: [target.lng, target.lat] }, properties: {} },
+        });
+        map.addLayer({
+          id: 'target-halo',
+          type: 'circle',
+          source: 'target-pt',
+          paint: {
+            'circle-radius': 22,
+            'circle-color': 'transparent',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': C.target,
+            'circle-stroke-opacity': 0.6,
+          },
+        });
+      }
     });
 
     // При ручном жесте (pan или rotate) — выход из autoFollow.
@@ -693,7 +698,10 @@ export default function RideScreen({
 
   // ── Trail coords buffer: инкрементальные push делаются в GPS-callback.
   // Этот эффект обрабатывает только переключение showTrail и styledata-rebuild.
-  const trailCoordsRef = useRef<[number, number][]>([]);
+  // Инициализация сразу из trailRef — при continuation трек виден с первого кадра.
+  const trailCoordsRef = useRef<[number, number][]>(
+    trailRef.current.map(p => [p.lng, p.lat]),
+  );
   useEffect(() => {
     showTrailRef.current = settings.showTrail;
     const map = mapRef.current;
