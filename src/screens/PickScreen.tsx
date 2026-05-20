@@ -58,6 +58,9 @@ export default function PickScreen({
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
   const distancePillRef = useRef<Marker | null>(null);
+  // Ref для доступа к continuationTrail из map.on('load') callback.
+  const contTrailRef = useRef(continuationTrail);
+  contTrailRef.current = continuationTrail;
 
   const [me, setMe] = useState<LatLng | null>(null);
   const [compassHeading, setCompassHeading] = useState<number | null>(null);
@@ -146,6 +149,24 @@ export default function PickScreen({
       addVectorSource(map);
       addTargetSource(map);
       addContTrailSource(map);
+      // Если есть continuation trail — сразу рисуем и подгоняем камеру.
+      const ct = contTrailRef.current;
+      if (ct && ct.length > 1) {
+        const src = map.getSource('cont-trail') as maplibregl.GeoJSONSource | undefined;
+        if (src) {
+          src.setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: ct.map(p => [p.lng, p.lat]) },
+            properties: {},
+          });
+          const lngs = ct.map(p => p.lng);
+          const lats = ct.map(p => p.lat);
+          map.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: 60, animate: false, maxZoom: 16 },
+          );
+        }
+      }
     });
 
     map.on('styledata', () => {
@@ -153,6 +174,18 @@ export default function PickScreen({
       addVectorSource(map);
       addTargetSource(map);
       addContTrailSource(map);
+      // Перезаливаем continuation trail после смены стиля.
+      const ct = contTrailRef.current;
+      if (ct && ct.length > 1) {
+        const src = map.getSource('cont-trail') as maplibregl.GeoJSONSource | undefined;
+        if (src) {
+          src.setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: ct.map(p => [p.lng, p.lat]) },
+            properties: {},
+          });
+        }
+      }
     });
 
     map.on('zoom', () => setMapZoom(Math.round(map.getZoom())));

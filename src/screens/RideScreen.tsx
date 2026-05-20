@@ -513,10 +513,12 @@ export default function RideScreen({
       .addTo(map);
 
     map.on('load', () => {
-      // Трек (зелёный пунктир)
+      // Трек (зелёный пунктир). При continuation — сразу показываем предыдущий путь.
+      const initialCoords: [number, number][] = trailRef.current.map(p => [p.lng, p.lat]);
+      trailCoordsRef.current = initialCoords;
       map.addSource('trail', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: initialCoords }, properties: {} },
       });
       map.addLayer({
         id: 'trail-line',
@@ -598,7 +600,7 @@ export default function RideScreen({
       if (!map.getSource('trail')) {
         map.addSource('trail', {
           type: 'geojson',
-          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+          data: { type: 'Feature', geometry: { type: 'LineString', coordinates: trailCoordsRef.current }, properties: {} },
         });
         map.addLayer({
           id: 'trail-line',
@@ -1183,7 +1185,7 @@ export default function RideScreen({
   }, []);
 
   function manualStop() {
-    triggerArrived();
+    setShowQuitModal(true);
   }
 
   // Long-press peek (full-screen BigDial).
