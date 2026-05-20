@@ -2,6 +2,20 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.44] — 2026-05-21
+
+### Добавлено
+
+- **Capacitor + Foreground Service** — замена TWA на Capacitor v8.3.4. Нативный Android foreground service (`foregroundServiceType="location"`) гарантирует работу GPS + голоса с выключенным экраном. Уведомление показывает дистанцию и направление на цель.
+- **src/lib/foregroundService.ts** — обёртка start/stop/update. На PWA — no-op, на Android — нативный сервис.
+- **CI/CD для Capacitor** — GitHub Actions: Node 22, JDK 21, Capacitor sync, Gradle assembleDebug + assembleRelease. Оба APK (debug + release) как артефакты.
+- **Notification icon** — `ic_stat_vector` (стрелка-компас) для уведомления foreground service.
+- **Дорожная карта обновлена** — Vector-Roadmap.docx пересоздан: v0.5.43 → Capacitor вместо TWA, foreground service, CI/CD, актуальный спринт.
+
+### Удалено
+
+- **TWA-проект** — `twa-manifest.json` и старый `android/` удалены. Capacitor полностью заменяет TWA.
+
 ## [0.5.43] — 2026-05-20
 
 ### Добавлено
