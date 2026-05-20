@@ -45,11 +45,11 @@ jobs:
       - name: Capacitor sync
         run: npx cap sync android --inline
 
-      # ── JDK 17 ──
+      # ── JDK 21 (required by Capacitor 8 / AGP 8.13) ──
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       # ── Android SDK platform 35 ──
       - name: Install Android SDK platform
