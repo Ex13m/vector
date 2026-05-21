@@ -22,6 +22,7 @@ import {
   type TrailPoint,
 } from '../lib/storage';
 import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
+import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
 import type { LngLatBox } from '../lib/tiles';
 import { haptic } from '../lib/feedback';
@@ -88,17 +89,16 @@ export default function PickScreen({
 
   // GPS — пользовательская точка.
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
-    const id = navigator.geolocation.watchPosition(
+    const handle = gpsWatch(
       (pos) => {
         const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setMe(p);
         setLastKnownPos(p);
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 5000 },
+      { enableHighAccuracy: true },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => handle.clear();
   }, []);
 
   // Компас — startHeading из orientation.ts. Сглаживание уже сделано

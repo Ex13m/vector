@@ -36,7 +36,7 @@ import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
-import { startForegroundService, stopForegroundService, updateForegroundService } from '../lib/foregroundService';
+import { watchPosition as gpsWatch } from '../lib/geolocation';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -199,17 +199,13 @@ export default function RideScreen({
   const hapticsRef = useRef(settings.haptics);
   useEffect(() => { hapticsRef.current = settings.haptics; }, [settings.haptics]);
 
-  // ── Фоновый аудио + Media Session, чтобы голос не глох с погашенным экраном.
-  // На нативном Android: foreground service гарантирует работу с выключенным экраном.
-  // На PWA: wakeAudio + silent MP3 как запасной вариант.
+  // ── Фоновый аудио + Media Session, чтобы голос не глох с погашенным экраном (PWA).
+  // На native Android фоновую работу обеспечивает @capgo/background-geolocation —
+  // его встроенный foreground service держит процесс живым с выключенным экраном.
   useEffect(() => {
     startWakeAudio();
     setupMediaSession('Vector · к цели');
-    void startForegroundService();
-    return () => {
-      stopWakeAudio();
-      void stopForegroundService();
-    };
+    return () => stopWakeAudio();
   }, []);
 
   // ── PRE_RIDE voice hint: озвучиваем один раз при маунте.
@@ -269,8 +265,7 @@ export default function RideScreen({
   // phaseEnteredAt чтобы state machine не прыгнул в SHORT_STOP/LONG_STOP.
   const SLEEP_GAP_MS = 15_000;
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
-    const id = navigator.geolocation.watchPosition(
+    const handle = gpsWatch(
       (pos) => {
         const prevGpsAt = lastGpsAtRef.current;
         const now = Date.now();
@@ -372,10 +367,16 @@ export default function RideScreen({
         }
       },
       () => setGpsLost(true),
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 30_000 },
+      {
+        enableHighAccuracy: true,
+        // На native платформе показываем persistent notification —
+        // foreground service плагина держит процесс живым с выключенным экраном.
+        backgroundTitle: 'Vector · navigation',
+        backgroundMessage: 'Guiding you to the target',
+      },
     );
     return () => {
-      navigator.geolocation.clearWatch(id);
+      handle.clear();
       if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1043,10 +1044,8 @@ export default function RideScreen({
         settings.lang,
         settings.voiceURI,
       );
-      // Update foreground notification with current distance (native only, no-op on web)
-      void updateForegroundService(`${dist} to target · ${clockHM}`);
     };
-  }, [me, settings.lang, settings.voiceURI, clockHM, dist, distM, etaMin, reverse]);
+  }, [me, settings.lang, settings.voiceURI, clockHM, distM, etaMin, reverse]);
 
   // ── handleTransitionSignal — реакция на смену фазы state machine.
   // Хранится в ref, чтобы GPS-callback не зависел от state.

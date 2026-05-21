@@ -10,6 +10,10 @@ const config: CapacitorConfig = {
   },
   android: {
     backgroundColor: '#0A0C0B',
+    // CRITICAL for background GPS: legacy bridge prevents WebView from
+    // halting location updates after ~5 minutes when screen is off.
+    // Without this, @capgo/background-geolocation stops firing callbacks.
+    useLegacyBridge: true,
   },
   plugins: {},
 };

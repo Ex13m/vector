@@ -2,5 +2,8 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
-include ':capawesome-team-capacitor-android-foreground-service'
-project(':capawesome-team-capacitor-android-foreground-service').projectDir = new File('../node_modules/@capawesome-team/capacitor-android-foreground-service/android')
+include ':capacitor-community-text-to-speech'
+project(':capacitor-community-text-to-speech').projectDir = new File('../node_modules/@capacitor-community/text-to-speech/android')
+
+include ':capgo-background-geolocation'
+project(':capgo-background-geolocation').projectDir = new File('../node_modules/@capgo/background-geolocation/android')

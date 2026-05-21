@@ -18,6 +18,7 @@ import {
 import { tileUrl } from '../lib/mapStyles';
 import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import { haptic } from '../lib/feedback';
+import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
 
@@ -56,13 +57,12 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
 
   // GPS — для маркера «вы».
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
-    const id = navigator.geolocation.watchPosition(
+    const handle = gpsWatch(
       (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {},
-      { enableHighAccuracy: true, maximumAge: 5000 },
+      { enableHighAccuracy: true },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => handle.clear();
   }, []);
 
   // Map mount + initial fitBounds (вы + цель в кадре, padding 60).

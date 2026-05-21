@@ -24,11 +24,9 @@
 
         </activity>
 
-        <!-- Foreground service for background GPS tracking during ride -->
-        <service
-            android:name="io.capawesome.capacitorjs.plugins.foregroundservice.AndroidForegroundService"
-            android:foregroundServiceType="location"
-            android:exported="false" />
+        <!-- Foreground service for background GPS is provided by
+             @capgo/background-geolocation plugin — no manual <service> declaration needed.
+             The plugin registers it via its own manifest merge. -->
 
         <provider
             android:name="androidx.core.content.FileProvider"

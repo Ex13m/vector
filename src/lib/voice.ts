@@ -1,12 +1,29 @@
-// Web Speech API. Бесплатно, оффлайн на iOS/Android.
-// На iOS первый вызов должен быть из жеста, иначе ничего не произнесёт.
+// Голос: гибридный подход.
+//
+// • Web (PWA в браузере): Web Speech API (speechSynthesis).
+//   На iOS первый вызов должен быть из жеста.
+//
+// • Native (Android APK через Capacitor): нативный TTS через
+//   @capacitor-community/text-to-speech, потому что speechSynthesis
+//   в Android WebView НЕ РАБОТАЕТ (известный баг Chromium #487255).
+//
+// Выбор движка происходит автоматически через Capacitor.isNativePlatform().
+
+import { Capacitor } from '@capacitor/core';
 
 export type VoiceLang = 'ru' | 'en' | 'de';
 
-export function speak(text: string, lang: VoiceLang = 'ru', voiceURI?: string | null) {
+const isNative = Capacitor.isNativePlatform();
+
+function langTag(lang: VoiceLang): string {
+  return lang === 'ru' ? 'ru-RU' : lang === 'de' ? 'de-DE' : 'en-US';
+}
+
+/** Web Speech API путь (браузер / iOS Safari) */
+function speakWeb(text: string, lang: VoiceLang, voiceURI?: string | null) {
   if (!('speechSynthesis' in window)) return;
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = lang === 'ru' ? 'ru-RU' : lang === 'de' ? 'de-DE' : 'en-US';
+  utter.lang = langTag(lang);
   utter.rate = 1.0;
   utter.pitch = 1.0;
   if (voiceURI) {
@@ -15,6 +32,34 @@ export function speak(text: string, lang: VoiceLang = 'ru', voiceURI?: string | 
   }
   speechSynthesis.cancel();
   speechSynthesis.speak(utter);
+}
+
+/** Native TTS путь (Capacitor Android) */
+async function speakNative(text: string, lang: VoiceLang) {
+  try {
+    const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+    // Прерываем предыдущую фразу — поведение совместимое с web speechSynthesis.cancel()
+    try { await TextToSpeech.stop(); } catch { /* ignore */ }
+    await TextToSpeech.speak({
+      text,
+      lang: langTag(lang),
+      rate: 1.0,
+      pitch: 1.0,
+      volume: 1.0,
+      category: 'ambient', // не прерывает фоновую музыку на iOS
+    });
+  } catch (e) {
+    console.warn('[voice] native TTS failed, falling back to web:', e);
+    speakWeb(text, lang);
+  }
+}
+
+export function speak(text: string, lang: VoiceLang = 'ru', voiceURI?: string | null) {
+  if (isNative) {
+    void speakNative(text, lang);
+  } else {
+    speakWeb(text, lang, voiceURI);
+  }
 }
 
 function clockWords(clockHM: string, lang: VoiceLang): string {

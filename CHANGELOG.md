@@ -2,6 +2,24 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.45] — 2026-05-21
+
+### Исправлено
+
+- **Голос на Android APK** — Web Speech API не работает в Android WebView (баг Chromium #487255). Заменён на нативный TTS через `@capacitor-community/text-to-speech` v8. На PWA остаётся `speechSynthesis`.
+- **GPS с выключенным экраном** — `navigator.geolocation.watchPosition` троттлится WebView через ~5 минут даже с foreground service. Заменён на нативный `@capgo/background-geolocation` со встроенным foreground service. Включена опция `useLegacyBridge: true` в `capacitor.config.ts` — без неё GPS останавливается через 5 минут.
+
+### Добавлено
+
+- **src/lib/geolocation.ts** — гибридная обёртка над GPS. На web → `navigator.geolocation`, на native → `@capgo/background-geolocation` (с `backgroundMessage` для работы в фоне на RideScreen).
+- **src/lib/voice.ts** — гибридный TTS: на web → `speechSynthesis`, на native → `TextToSpeech.speak()`.
+
+### Удалено
+
+- **`@capawesome-team/capacitor-android-foreground-service`** — больше не нужен, foreground service встроен в GPS-плагин.
+- **`src/lib/foregroundService.ts`** — обёртка над удалённым плагином, заменена логикой GPS-плагина.
+- **Manual `<service>` declaration** в AndroidManifest.xml — плагин регистрирует свой сервис автоматически.
+
 ## [0.5.44] — 2026-05-21
 
 ### Добавлено
