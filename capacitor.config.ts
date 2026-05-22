@@ -15,7 +15,13 @@ const config: CapacitorConfig = {
     // Without this, @capgo/background-geolocation stops firing callbacks.
     useLegacyBridge: true,
   },
-  plugins: {},
+  plugins: {
+    // @capacitor-community/safe-area: для Capacitor 8 нужно отключить
+    // встроенную обработку insets, чтобы плагин сам управлял safe-area.
+    SystemBars: {
+      insetsHandling: 'disable',
+    },
+  },
 };
 
 export default config;

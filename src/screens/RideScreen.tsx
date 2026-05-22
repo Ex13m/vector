@@ -274,11 +274,21 @@ export default function RideScreen({
 
         // ── Accuracy guard (PRE_RIDE / LONG_STOP): в помещении GPS прыгает,
         // accuracy 50–200м. Без фильтра state machine видит ложное «уехал» и
-        // переводит в RIDING. Пропускаем ВСЁ (включая setMe) чтобы маркер не прыгал.
+        // переводит в RIDING.
         const accuracy = pos.coords.accuracy ?? 999;
         const ph = machineRef.current.phase;
-        if ((ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30) {
-          return; // GPS ненадёжен — ждём нормальный фикс
+        const poorFix = (ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30;
+        if (poorFix) {
+          // Грубый фикс: НЕ кормим state machine / трек (иначе маркер прыгает
+          // и ложно «уезжаем»). НО первый фикс всё равно показываем — чтобы
+          // карта центрировалась и маркер «вы» появился сразу (а не висел на
+          // дефолте, пока ловятся спутники). Дальше грубые фиксы игнорим.
+          if (!meAvailableRef.current) {
+            const p0 = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setMe(p0);
+            setLastKnownPos(p0);
+          }
+          return;
         }
 
         const p: TrailPoint = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: now };

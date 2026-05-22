@@ -2,6 +2,18 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.47] — 2026-05-21
+
+### Исправлено
+
+- **Safe-area / компас съезжал (edge-to-edge на Android 15)** — `targetSdk 36` принудительно включает edge-to-edge, но Android WebView не отдавал `env(safe-area-inset-*)` → панель и компас уезжали под статусбар. Добавлен `@capacitor-community/safe-area` + `EdgeToEdge.enable()` в MainActivity + `SystemBars.insetsHandling: disable`. Существующий CSS с `env(safe-area-inset-*)` теперь работает.
+- **Медленный поиск позиции на ВСЕХ экранах** — `enableHighAccuracy: true` заставлял ждать спутниковый фикс (долго в помещении). Теперь `watchPosition` сразу засевает грубую сетевую позицию через `getQuickFix()` (мгновенно), точный фикс приходит следом. Работает на Pick/Cache/Ride.
+- **RideScreen PRE_RIDE — нет позиции** — accuracy-guard (>30м) отбрасывал ВСЕ грубые фиксы, маркер не появлялся пока нет спутников. Теперь первый грубый фикс показывает маркер + центрирует карту, дальше грубые фиксы игнорируются (чтоб не прыгал).
+
+### Добавлено
+
+- **getQuickFix()** в geolocation.ts — одноразовый быстрый фикс (сетевая позиция, `enableHighAccuracy: false`) для мгновенного засева позиции на старте.
+
 ## [0.5.46] — 2026-05-21
 
 ### Исправлено

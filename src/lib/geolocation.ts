@@ -49,6 +49,66 @@ export type WatchHandle = {
 };
 
 /**
+ * Одноразовый быстрый фикс позиции (сетевая позиция, ~мгновенно).
+ * Для засева начальной позиции на RideScreen, пока фоновый плагин
+ * ещё ловит первый спутниковый фикс. На web — getCurrentPosition.
+ */
+export function getQuickFix(): Promise<GeoPosition | null> {
+  if (!isNative) {
+    return new Promise((resolve) => {
+      if (!('geolocation' in navigator)) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({
+          coords: {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            altitude: pos.coords.altitude,
+            altitudeAccuracy: pos.coords.altitudeAccuracy,
+            heading: pos.coords.heading,
+            speed: pos.coords.speed,
+          },
+          timestamp: pos.timestamp,
+        }),
+        () => resolve(null),
+        { enableHighAccuracy: false, maximumAge: 10_000, timeout: 8_000 },
+      );
+    });
+  }
+  return (async () => {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      try {
+        const perm = await Geolocation.checkPermissions();
+        if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+          await Geolocation.requestPermissions({ permissions: ['location'] });
+        }
+      } catch { /* ignore */ }
+      const pos = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: false, // сетевая позиция — быстро, работает в помещении
+        timeout: 8_000,
+        maximumAge: 10_000,
+      });
+      return {
+        coords: {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? 0,
+          altitude: pos.coords.altitude ?? null,
+          altitudeAccuracy: pos.coords.altitudeAccuracy ?? null,
+          heading: pos.coords.heading ?? null,
+          speed: pos.coords.speed ?? null,
+        },
+        timestamp: pos.timestamp ?? Date.now(),
+      };
+    } catch (e) {
+      console.warn('[geolocation] quick fix failed:', e);
+      return null;
+    }
+  })();
+}
+
+/**
  * Подписаться на GPS. Возвращает handle с .clear().
  *
  * Используй для RideScreen с `backgroundMessage`, чтобы трек продолжался
@@ -59,17 +119,34 @@ export function watchPosition(
   onError: GeoErrorCb = () => {},
   options: GeoWatchOptions = {},
 ): WatchHandle {
+  let cleared = false;
+
+  // ── Быстрый засев позиции (ВСЕ экраны) ──
+  // Сразу даём грубую сетевую позицию (~мгновенно, работает в помещении),
+  // чтобы карта центрировалась и маркер "вы" появился без ожидания спутников.
+  // Точный фикс придёт следом от основного watcher.
+  void getQuickFix().then((pos) => {
+    if (pos && !cleared) onSuccess(pos);
+  });
+
+  let inner: WatchHandle;
   if (isNative) {
     // Если задан backgroundMessage — нужен фоновый трекинг (поездка):
     // @capgo/background-geolocation со своим foreground service.
-    // Иначе (стартовые экраны) — быстрый foreground-фикс через
-    // @capacitor/geolocation (сетевая позиция, мгновенно даже в помещении).
-    if (options.backgroundMessage) {
-      return watchNativeBackground(onSuccess, onError, options);
-    }
-    return watchNativeForeground(onSuccess, onError, options);
+    // Иначе (стартовые экраны) — foreground-watcher через @capacitor/geolocation.
+    inner = options.backgroundMessage
+      ? watchNativeBackground(onSuccess, onError, options)
+      : watchNativeForeground(onSuccess, onError, options);
+  } else {
+    inner = watchWeb(onSuccess, onError, options);
   }
-  return watchWeb(onSuccess, onError, options);
+
+  return {
+    clear: () => {
+      cleared = true;
+      inner.clear();
+    },
+  };
 }
 
 // ── Native foreground путь (быстрый, для PickScreen/CacheScreen) ───────
