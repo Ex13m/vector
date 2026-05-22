@@ -2,6 +2,18 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.46] — 2026-05-21
+
+### Исправлено
+
+- **GPS на стартовом экране (PickScreen/CacheScreen)** — в помещении карта висела на дефолте (Москва z4), не показывала позицию. Причина: `@capgo/background-geolocation` с `stale: false` ждал спутниковый фикс, не отдавал сетевую позицию. Добавлен `@capacitor/geolocation` для быстрого foreground-фикса (сетевая позиция как в браузере, работает в помещении). Фоновый плагин остался только для RideScreen (трекинг с выключенным экраном).
+- **Лок ориентации** — APK вращался при повороте телефона. Добавлен `android:screenOrientation="portrait"` в AndroidManifest.
+
+### Изменено
+
+- **src/lib/geolocation.ts** — три пути: web (`navigator.geolocation`), native-foreground (`@capacitor/geolocation`, быстро), native-background (`@capgo/background-geolocation`, для поездки). Выбор фонового пути — по наличию `backgroundMessage`.
+- **TTS-диагностика** — нативный TTS при ошибке показывает её на экране (красный тост) вместо тихого падения. Убран `category: 'ambient'` (глушил звук на части устройств). Для отладки бага "нет голоса".
+
 ## [0.5.45] — 2026-05-21
 
 ### Исправлено

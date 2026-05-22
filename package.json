@@ -1,7 +1,7 @@
 {
   "name": "vector",
   "private": true,
-  "version": "0.5.45",
+  "version": "0.5.46",
   "type": "module",
   "description": "Voice-guided cycling beacon — clock-position navigation PWA.",
   "scripts": {
@@ -15,6 +15,7 @@
     "@capacitor/android": "^8.3.4",
     "@capacitor/cli": "^8.3.4",
     "@capacitor/core": "^8.3.4",
+    "@capacitor/geolocation": "^8.2.0",
     "@capgo/background-geolocation": "^8.0.35",
     "idb-keyval": "^6.2.1",
     "maplibre-gl": "^4.7.1",

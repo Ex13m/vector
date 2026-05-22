@@ -34,6 +34,28 @@ function speakWeb(text: string, lang: VoiceLang, voiceURI?: string | null) {
   speechSynthesis.speak(utter);
 }
 
+/** Последняя ошибка нативного TTS — для видимой диагностики на экране. */
+export let lastTtsError: string | null = null;
+
+/** Показывает короткий тост с диагностикой (один раз на сообщение). */
+function showTtsDiag(msg: string) {
+  lastTtsError = msg;
+  try {
+    let el = document.getElementById('tts-diag');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'tts-diag';
+      el.style.cssText =
+        'position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));' +
+        'z-index:99999;background:rgba(200,40,40,0.95);color:#fff;font:12px/1.4 monospace;' +
+        'padding:8px 10px;border-radius:8px;white-space:pre-wrap;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = 'TTS: ' + msg;
+    window.setTimeout(() => { el && el.remove(); }, 6000);
+  } catch { /* ignore */ }
+}
+
 /** Native TTS путь (Capacitor Android) */
 async function speakNative(text: string, lang: VoiceLang) {
   try {
@@ -46,11 +68,13 @@ async function speakNative(text: string, lang: VoiceLang) {
       rate: 1.0,
       pitch: 1.0,
       volume: 1.0,
-      category: 'ambient', // не прерывает фоновую музыку на iOS
+      // category убран: 'ambient' на части устройств глушит TTS (mute switch / stream).
     });
+    lastTtsError = null;
   } catch (e) {
-    console.warn('[voice] native TTS failed, falling back to web:', e);
-    speakWeb(text, lang);
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    console.warn('[voice] native TTS failed:', e);
+    showTtsDiag(msg);
   }
 }
 

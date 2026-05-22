@@ -60,9 +60,91 @@ export function watchPosition(
   options: GeoWatchOptions = {},
 ): WatchHandle {
   if (isNative) {
-    return watchNative(onSuccess, onError, options);
+    // Если задан backgroundMessage — нужен фоновый трекинг (поездка):
+    // @capgo/background-geolocation со своим foreground service.
+    // Иначе (стартовые экраны) — быстрый foreground-фикс через
+    // @capacitor/geolocation (сетевая позиция, мгновенно даже в помещении).
+    if (options.backgroundMessage) {
+      return watchNativeBackground(onSuccess, onError, options);
+    }
+    return watchNativeForeground(onSuccess, onError, options);
   }
   return watchWeb(onSuccess, onError, options);
+}
+
+// ── Native foreground путь (быстрый, для PickScreen/CacheScreen) ───────
+// @capacitor/geolocation использует FusedLocationProvider — отдаёт сетевую
+// позицию мгновенно (как браузер), работает в помещении.
+function watchNativeForeground(
+  onSuccess: GeoSuccessCb,
+  onError: GeoErrorCb,
+  options: GeoWatchOptions,
+): WatchHandle {
+  let watchId: string | null = null;
+  let cleared = false;
+
+  (async () => {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      // Запросить разрешение явно (иначе watch молча не стартует).
+      try {
+        const perm = await Geolocation.checkPermissions();
+        if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+          await Geolocation.requestPermissions({ permissions: ['location'] });
+        }
+      } catch { /* ignore — watch всё равно попробует */ }
+
+      if (cleared) return;
+
+      const id = await Geolocation.watchPosition(
+        {
+          enableHighAccuracy: options.enableHighAccuracy ?? true,
+          timeout: 30_000,
+          maximumAge: 5000,
+        },
+        (pos, err) => {
+          if (err) {
+            onError({ code: 0, message: err.message || String(err) });
+            return;
+          }
+          if (!pos) return;
+          onSuccess({
+            coords: {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy ?? 0,
+              altitude: pos.coords.altitude ?? null,
+              altitudeAccuracy: pos.coords.altitudeAccuracy ?? null,
+              heading: pos.coords.heading ?? null,
+              speed: pos.coords.speed ?? null,
+            },
+            timestamp: pos.timestamp ?? Date.now(),
+          });
+        },
+      );
+      if (cleared) {
+        await Geolocation.clearWatch({ id });
+      } else {
+        watchId = id;
+      }
+    } catch (e) {
+      console.warn('[geolocation] native foreground watch failed:', e);
+      onError({ code: 0, message: String(e) });
+    }
+  })();
+
+  return {
+    clear: () => {
+      cleared = true;
+      if (watchId) {
+        const id = watchId;
+        watchId = null;
+        void import('@capacitor/geolocation')
+          .then(({ Geolocation }) => Geolocation.clearWatch({ id }))
+          .catch(() => { /* ignore */ });
+      }
+    },
+  };
 }
 
 // ── Web путь ──────────────────────────────────────────────────────────
@@ -96,14 +178,14 @@ function watchWeb(
   return { clear: () => navigator.geolocation.clearWatch(id) };
 }
 
-// ── Native путь ───────────────────────────────────────────────────────
+// ── Native background путь (для RideScreen — трекинг с выключенным экраном) ─
 // @capgo/background-geolocation работает как ОДИН глобальный watcher на
 // процесс (start/stop). У нас одновременно показывается только один экран,
 // так что это OK. Перед новым start всегда делаем stop.
 
 let _activeOwner: symbol | null = null;
 
-function watchNative(
+function watchNativeBackground(
   onSuccess: GeoSuccessCb,
   onError: GeoErrorCb,
   options: GeoWatchOptions,
