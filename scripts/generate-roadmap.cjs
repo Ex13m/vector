@@ -212,7 +212,7 @@ children.push(new Paragraph({
   alignment: AlignmentType.CENTER,
   spacing: { after: 400 },
   children: [new TextRun({
-    text: 'Версия: 0.5.43  |  Май 2026',
+    text: 'Версия: 0.5.45  |  Май 2026',
     font: 'Arial', size: 22, bold: true, color: ACCENT_ORANGE,
   })],
 }));
@@ -260,7 +260,7 @@ children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
 // SECTION 2: CURRENT STATE
 // ══════════════════════════════════════════════════════════
 children.push(new Paragraph({ children: [new PageBreak()] }));
-children.push(heading('Текущее состояние (v0.5.43)', HeadingLevel.HEADING_1));
+children.push(heading('Текущее состояние (v0.5.45)', HeadingLevel.HEADING_1));
 
 children.push(heading('Работающие функции', HeadingLevel.HEADING_2));
 children.push(bulletItem('Выбор цели на карте или поиском (Nominatim)', 'bullets'));
@@ -288,6 +288,11 @@ children.push(bulletItem('Хостинг: Netlify (PWA) + GitHub Actions (APK CI
 
 children.push(heading('Архитектура разработки', HeadingLevel.HEADING_2));
 children.push(para('Разработка ведётся через PWA (Vite HMR, горячая перезагрузка в браузере). Когда всё работает — Capacitor sync + Gradle build собирает APK для дистрибуции. Web-ассеты включаются внутрь APK (bundled mode), сервер не нужен.'));
+
+children.push(heading('Известные проблемы (тестирование APK)', HeadingLevel.HEADING_2));
+children.push(richBullet([bold('Голос в WebView. '), normal('РЕШЕНО (v0.5.45): Web Speech API не работает в Android WebView (баг Chromium #487255) → нативный TTS через @capacitor-community/text-to-speech.')], 'bullets'));
+children.push(richBullet([bold('GPS с выключенным экраном. '), normal('РЕШЕНО (v0.5.45): watchPosition троттлится через ~5 минут → нативный @capgo/background-geolocation + useLegacyBridge.')], 'bullets'));
+children.push(richBullet([bold('Обновление APK без удаления. '), normal('ОЖИДАЕТ: debug APK подписывается случайным ключом на каждой сборке CI → Android не даёт обновить поверх, требует удаления (теряются данные). Нужен фиксированный debug keystore в репозитории.')], 'bullets'));
 
 // ══════════════════════════════════════════════════════════
 // SECTION 3: ROADMAP
@@ -481,14 +486,16 @@ children.push(new Table({
   columnWidths: sprintWidths,
   rows: [
     new TableRow({ children: [headerCell('#', sprintWidths[0]), headerCell('Задача', sprintWidths[1]), headerCell('Статус', sprintWidths[2]), headerCell('Приоритет', sprintWidths[3])] }),
-    new TableRow({ children: [cell('1', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Capacitor + foreground service + CI/CD', sprintWidths[1]), cell('✅ Готово', sprintWidths[2], { color: '1B5E20', bold: true }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('2', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Полевые испытания APK (фоновый GPS, голос, экран выкл.)', sprintWidths[1]), cell('⏳ Следующий', sprintWidths[2], { color: ACCENT_ORANGE, bold: true }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('3', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Багфиксы по результатам испытаний', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('4', sprintWidths[0], { align: AlignmentType.CENTER }), cell('i18n: перевод UI на EN', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('5', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Privacy Policy + Terms of Service', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('6', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Google Play Developer Account + листинг', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('7', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Рефакторинг RideScreen + GPS provider', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P2', sprintWidths[3], { align: AlignmentType.CENTER })] }),
-    new TableRow({ children: [cell('8', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Публикация v1.0 в Google Play', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('1', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Capacitor + CI/CD (автосборка APK)', sprintWidths[1]), cell('✅ Готово', sprintWidths[2], { color: '1B5E20', bold: true }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('2', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Нативный TTS + фоновый GPS (плагины Capacitor)', sprintWidths[1]), cell('✅ Готово', sprintWidths[2], { color: '1B5E20', bold: true }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('3', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Полевые испытания APK (голос, фоновый GPS, экран выкл.)', sprintWidths[1]), cell('⏳ Сейчас', sprintWidths[2], { color: ACCENT_ORANGE, bold: true }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('4', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Багфиксы по результатам испытаний APK', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P0', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('5', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Фиксированный debug keystore — обновление APK без удаления (сохранение данных)', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('6', sprintWidths[0], { align: AlignmentType.CENTER }), cell('i18n: перевод UI на EN', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('7', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Privacy Policy + Terms of Service', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('8', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Google Play Developer Account + листинг', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('9', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Рефакторинг RideScreen + единый GPS provider', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P2', sprintWidths[3], { align: AlignmentType.CENTER })] }),
+    new TableRow({ children: [cell('10', sprintWidths[0], { align: AlignmentType.CENTER }), cell('Публикация v1.0 в Google Play', sprintWidths[1]), cell('⏳ Ожидает', sprintWidths[2], { color: GRAY_600 }), cell('P1', sprintWidths[3], { align: AlignmentType.CENTER })] }),
   ],
 }));
 
@@ -525,7 +532,7 @@ const doc = new Document({
         children: [new Paragraph({
           alignment: AlignmentType.CENTER,
           children: [
-            new TextRun({ text: 'v0.5.43 | Май 2026 | ', font: 'Arial', size: 16, color: GRAY_600 }),
+            new TextRun({ text: 'v0.5.45 | Май 2026 | ', font: 'Arial', size: 16, color: GRAY_600 }),
             new TextRun({ text: 'Стр. ', font: 'Arial', size: 16, color: GRAY_600 }),
             new TextRun({ children: [PageNumber.CURRENT], font: 'Arial', size: 16, color: GRAY_600 }),
           ],
