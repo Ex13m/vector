@@ -119,6 +119,12 @@ export default function RideScreen({
   const pausedRef = useRef(paused);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   const [silenced, setSilenced] = useState(false);
+  // Рефы для фоновой озвучки из GPS-колбэка (setInterval троттлится при
+  // выключенном экране, а GPS-колбэк из натива — нет).
+  const silencedRef = useRef(false);
+  useEffect(() => { silencedRef.current = silenced; }, [silenced]);
+  const intervalSecRef = useRef(settings.intervalSec);
+  useEffect(() => { intervalSecRef.current = settings.intervalSec; }, [settings.intervalSec]);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [arrived, setArrived] = useState(false);
   const [tripName, setTripName] = useState('');
@@ -332,6 +338,19 @@ export default function RideScreen({
         if (pausedRef.current) return;
         const phase = nextState.phase;
         if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
+
+        // ── Фоновая озвучка (КРИТИЧНО для работы с выключенным экраном).
+        // Голосовой setInterval троттлится браузером когда экран погашен,
+        // но GPS-колбэк приходит из натива и продолжает работать. Поэтому
+        // дублируем триггер здесь — по времени с последней фразы.
+        if (!silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
+          const sinceVoice = Date.now() - lastVoiceRef.current;
+          if (sinceVoice >= intervalSecRef.current * 1000) {
+            lastVoiceRef.current = Date.now();
+            speakRef.current();
+          }
+        }
+
         // Дедупликация и accumulator ridden вне setTrail callback —
         // иначе StrictMode (двойной вызов) удвоит дельту.
         const lastPt = lastTrailPointRef.current;
@@ -1006,10 +1025,12 @@ export default function RideScreen({
     if (distM < ARRIVED_M) triggerArrived();
   }, [me, distM, arrived, paused, ridePhase, triggerArrived]);
 
-  // ── Auto-save поездки при arrived (один раз).
-  useEffect(() => {
-    if (!arrived) return;
+  // ── Сохранение поездки (идемпотентно, guard по savedTripIdRef).
+  // Вызывается синхронно из onFinish (иначе навигация размонтирует экран
+  // до того как сработает эффект → трек терялся) и из auto-save эффекта.
+  const persistTrip = useCallback(() => {
     if (savedTripIdRef.current) return;
+    if (trailRef.current.length === 0) return; // нечего сохранять
     const id = String(Date.now());
     savedTripIdRef.current = id;
     const defaultName = `Поездка от ${new Date().toLocaleString('ru-RU', {
@@ -1033,8 +1054,13 @@ export default function RideScreen({
       target,
     };
     void saveTrip(trip);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arrived]);
+  }, [ridden, avgMps, reverse, target]);
+
+  // ── Auto-save поездки при arrived (один раз).
+  useEffect(() => {
+    if (!arrived) return;
+    persistTrip();
+  }, [arrived, persistTrip]);
 
   // ── Rename trip on tripName change (debounce 400).
   useEffect(() => {
@@ -1758,8 +1784,12 @@ export default function RideScreen({
           trail={trailRef.current}
           onFinish={() => {
             setShowQuitModal(false);
-            // При ручном стопе нужно сохранить поездку перед выходом.
-            if (!arrived) triggerArrived();
+            // КРИТИЧНО: сохранить СИНХРОННО перед навигацией. Раньше тут был
+            // triggerArrived() → setArrived (асинхронно) → эффект авто-сохранения,
+            // но onJournal() размонтировал экран раньше → трек терялся.
+            persistTrip();
+            clearRideSession(); // поездка завершена — резюм не предлагать
+            if (!arrived) setArrived(true);
             haptic('light', settings.haptics);
             onJournal();
           }}
