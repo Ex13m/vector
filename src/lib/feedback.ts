@@ -1,8 +1,11 @@
 // Лёгкие feedback-утилиты: вибрация + короткие beep'ы через WebAudio.
 // Никаких внешних аудиофайлов. Уважает Settings.haptics.
 
+import { Capacitor } from '@capacitor/core';
+
 type TapKind = 'light' | 'medium' | 'heavy' | 'success' | 'warn';
 
+// Web fallback паттерны (navigator.vibrate)
 const PATTERNS: Record<TapKind, number | number[]> = {
   light: 8,
   medium: 14,
@@ -11,8 +14,34 @@ const PATTERNS: Record<TapKind, number | number[]> = {
   warn: [30, 40, 30],
 };
 
+const isNative = Capacitor.isNativePlatform();
+
 export function haptic(kind: TapKind = 'light', enabled = true): void {
   if (!enabled) return;
+
+  if (isNative) {
+    // Нативная вибрация через @capacitor/haptics — работает надёжно
+    // на всех Android устройствах (navigator.vibrate может не работать в WebView).
+    void import('@capacitor/haptics').then(({ Haptics, ImpactStyle, NotificationType }) => {
+      if (kind === 'light') {
+        void Haptics.impact({ style: ImpactStyle.Light });
+      } else if (kind === 'medium') {
+        void Haptics.impact({ style: ImpactStyle.Medium });
+      } else if (kind === 'heavy') {
+        void Haptics.impact({ style: ImpactStyle.Heavy });
+      } else if (kind === 'success') {
+        void Haptics.notification({ type: NotificationType.Success });
+      } else if (kind === 'warn') {
+        void Haptics.notification({ type: NotificationType.Warning });
+      }
+    }).catch(() => {
+      // fallback — navigator.vibrate
+      if ('vibrate' in navigator) navigator.vibrate(PATTERNS[kind]);
+    });
+    return;
+  }
+
+  // Web — navigator.vibrate (PWA)
   if (!('vibrate' in navigator)) return;
   navigator.vibrate(PATTERNS[kind]);
 }

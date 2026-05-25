@@ -8,5 +8,8 @@ project(':capacitor-community-text-to-speech').projectDir = new File('../node_mo
 include ':capacitor-geolocation'
 project(':capacitor-geolocation').projectDir = new File('../node_modules/@capacitor/geolocation/android')
 
+include ':capacitor-haptics'
+project(':capacitor-haptics').projectDir = new File('../node_modules/@capacitor/haptics/android')
+
 include ':capgo-background-geolocation'
 project(':capgo-background-geolocation').projectDir = new File('../node_modules/@capgo/background-geolocation/android')

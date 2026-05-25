@@ -154,6 +154,7 @@ export default function RideScreen({
   const speedMaxRef = useRef(savedSession?.speedMaxMps ?? contSpeedMax);
   const lastVoiceRef = useRef(0);
   const lastGpsAtRef = useRef(0);
+  const lastSessionSaveRef = useRef(0);
   // ── Incremental ridden accumulator: считаем дельту в GPS-callback вместо
   // прохода по всему trail на каждый re-render (O(n) → O(1) per fix).
   const riddenRef = useRef<number>(0);
@@ -391,6 +392,29 @@ export default function RideScreen({
               type: 'Feature',
               geometry: { type: 'LineString', coordinates: trailCoordsRef.current },
               properties: {},
+            });
+          }
+        }
+
+        // ── Фоновое сохранение сессии (для резюма после краша/выхода).
+        // setInterval троттлится при выключенном экране, но GPS-колбэк
+        // приходит из натива и продолжает работать → сохраняем из него.
+        if (now - lastSessionSaveRef.current >= 10_000) {
+          lastSessionSaveRef.current = now;
+          const s = sessionSnapshotRef.current;
+          if (!s.arrived) {
+            saveRideSession({
+              target: s.target,
+              targetName: s.targetName,
+              reverse: s.reverse,
+              trail: trailRef.current,
+              elapsedSec: s.time,
+              machineState: machineRef.current,
+              ridePhase: s.ridePhase,
+              speedMaxMps: speedMaxRef.current,
+              startedAt: startedAtRef.current,
+              paused: s.paused,
+              savedAt: now,
             });
           }
         }
@@ -1007,7 +1031,7 @@ export default function RideScreen({
   const triggerArrived = useCallback(() => {
     setArrived(true);
     clearRideSession(); // поездка завершена — сессия больше не нужна
-    if (settings.haptics && navigator.vibrate) navigator.vibrate([30, 60, 30, 60, 90]);
+    haptic('success', settings.haptics);
     if (!silenced) {
       // Голос «Вы у цели»
       const phrase = settings.lang === 'ru' ? 'Вы у цели' : settings.lang === 'de' ? 'Sie sind am Ziel' : 'You have arrived';
@@ -1091,7 +1115,7 @@ export default function RideScreen({
       switch (sig.type) {
         case 'START_RIDING': {
           // Голос «Поехали!» + вектор на цель через 3с + вибрация
-          if (settings.haptics && navigator.vibrate) navigator.vibrate([40, 80, 40]);
+          haptic('medium', settings.haptics);
           if (!silenced) {
             const phrase =
               settings.lang === 'ru' ? 'Поехали!' :

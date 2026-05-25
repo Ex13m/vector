@@ -304,7 +304,7 @@ export default function PickScreen({
       dragTimerRef.current = window.setTimeout(() => {
         marker.setDraggable(true);
         el.style.cursor = 'grabbing';
-        if (navigator.vibrate) navigator.vibrate(30);
+        haptic('heavy', settings.haptics);
       }, 380);
     };
     const onUp = () => {
