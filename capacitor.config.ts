@@ -21,6 +21,10 @@ const config: CapacitorConfig = {
     SystemBars: {
       insetsHandling: 'disable',
     },
+    SafeArea: {
+      // DARK = light icons on dark background (matches our dark UI theme).
+      statusBarStyle: 'DARK',
+    },
   },
 };
 

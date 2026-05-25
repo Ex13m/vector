@@ -34,7 +34,7 @@
 ## Статус фиксов (v0.5.47)
 
 - Баг 1 (ориентация) → FIXED v0.5.46 (`screenOrientation=portrait`)
-- Баг 2 (компас/safe-area) → FIXED v0.5.47 (`@capacitor-community/safe-area` + edge-to-edge)
+- Баг 2 (компас/safe-area) → FIXED v0.5.47 → REGRESSED v0.5.48 → RE-FIXED v0.5.49 (EdgeToEdge.enable() перенесён ДО super.onCreate() чтобы listener плагина SafeArea не перезаписывался)
 - Баги 3, 7, 8, 9, 10 (медленный GPS на всех экранах) → FIXED v0.5.47 (быстрый засев `getQuickFix` в обёртке + RideScreen показывает первый грубый фикс)
 - Баг 4 (артефакт внизу = MapLibre attribution "i") → проверить после safe-area фикса
 - Баг 5 (нет кнопки центрирования) → должна появиться когда `me` есть (была завязана на позицию)

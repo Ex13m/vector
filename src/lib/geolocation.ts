@@ -125,8 +125,15 @@ export function watchPosition(
   // Сразу даём грубую сетевую позицию (~мгновенно, работает в помещении),
   // чтобы карта центрировалась и маркер "вы" появился без ожидания спутников.
   // Точный фикс придёт следом от основного watcher.
+  const t0 = Date.now();
   void getQuickFix().then((pos) => {
-    if (pos && !cleared) onSuccess(pos);
+    const dt = Date.now() - t0;
+    if (pos && !cleared) {
+      console.log(`[geo] quickFix OK in ${dt}ms — acc=${pos.coords.accuracy.toFixed(0)}m`);
+      onSuccess(pos);
+    } else {
+      console.warn(`[geo] quickFix ${pos ? 'cleared' : 'FAILED'} after ${dt}ms`);
+    }
   });
 
   let inner: WatchHandle;
