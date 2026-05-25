@@ -2,17 +2,23 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.50] — 2026-05-25
+
+### Исправлено
+
+- **Убраны уродливые рамки (safe-area плагин)** — `@capacitor-community/safe-area` добавлял native padding к decorView → чёрные полосы сверху/снизу. Плагин удалён. Приложение рисуется на весь экран (edge-to-edge, принудительно на Android 15+). Отступы от статусбара — через нативный `env(safe-area-inset-top)` в CSS (WebView 140+ поддерживает без плагина).
+- **Компас на PickScreen съезжал под статусбар** — у компаса был `top: 62px` БЕЗ `env(safe-area-inset-top)`, в то время как все остальные элементы (поиск, зум-бейдж) его использовали. Исправлено на `calc(62px + env(safe-area-inset-top))`.
+- **GPS не находил позицию при первом запуске** — `getQuickFix()` и `watchNativeForeground()` одновременно вызывали `requestPermissions()` → race condition. Диалог разрешения съедал время, а `getQuickFix` с timeout 8с не успевал. Теперь: единый `ensureLocationPermission()` (один промис на весь процесс), quickFix запускается ПОСЛЕ получения разрешения. `maximumAge` увеличен до 5 мин (принимает кэш от других приложений). При втором запуске — моментально.
+
+### Удалено
+
+- `@capacitor-community/safe-area` — создавал артефакты (чёрные полосы). EdgeToEdge.enable() в MainActivity убран вместе с ним.
+
 ## [0.5.49] — 2026-05-25
 
 ### Исправлено
 
-- **Safe-area регрессия (компас опять съезжал)** — `EdgeToEdge.enable()` в MainActivity вызывался ПОСЛЕ `super.onCreate()`, перезаписывая `OnApplyWindowInsetsListener` плагина SafeArea. Инсеты не доходили до WebView → `env(safe-area-inset-top)` возвращал 0. Перенесён ДО `super.onCreate()` — теперь плагин ставит свой listener последним и управляет инсетами корректно.
-- **Стиль статус бара** — добавлен `SafeArea.statusBarStyle: 'DARK'` (светлые иконки на тёмном фоне нашей темы).
-
-### Добавлено
-
-- **Диагностика safe-area** — при старте на native логируется реальное значение `env(safe-area-inset-top)` (помогает отлаживать если опять сломается).
-- **Диагностика GPS** — `getQuickFix()` логирует время и точность первого фикса.
+- **Safe-area EdgeToEdge ordering** — попытка починить safe-area через порядок инициализации. Не помогло (плагин всё равно создавал рамки). Заменено в v0.5.50.
 
 ## [0.5.48] — 2026-05-21
 

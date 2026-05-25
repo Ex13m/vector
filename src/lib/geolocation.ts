@@ -48,12 +48,35 @@ export type WatchHandle = {
   clear: () => void;
 };
 
+// ── Единый запрос разрешений (один промис на весь процесс) ─────────────
+// Предотвращает двойной диалог разрешений от getQuickFix + watcher.
+let _permPromise: Promise<boolean> | null = null;
+
+function ensureLocationPermission(): Promise<boolean> {
+  if (!isNative) return Promise.resolve(true);
+  if (_permPromise) return _permPromise;
+  _permPromise = (async () => {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      const perm = await Geolocation.checkPermissions();
+      if (perm.location === 'granted' || perm.coarseLocation === 'granted') return true;
+      const result = await Geolocation.requestPermissions({ permissions: ['location'] });
+      return result.location === 'granted' || result.coarseLocation === 'granted';
+    } catch {
+      return false;
+    }
+  })();
+  return _permPromise;
+}
+
 /**
  * Одноразовый быстрый фикс позиции (сетевая позиция, ~мгновенно).
- * Для засева начальной позиции на RideScreen, пока фоновый плагин
- * ещё ловит первый спутниковый фикс. На web — getCurrentPosition.
+ * Для засева начальной позиции, пока фоновый плагин ещё ловит
+ * первый спутниковый фикс. На web — getCurrentPosition.
+ *
+ * НЕ запрашивает разрешения — вызывать после ensureLocationPermission().
  */
-export function getQuickFix(): Promise<GeoPosition | null> {
+function getQuickFix(): Promise<GeoPosition | null> {
   if (!isNative) {
     return new Promise((resolve) => {
       if (!('geolocation' in navigator)) return resolve(null);
@@ -71,23 +94,20 @@ export function getQuickFix(): Promise<GeoPosition | null> {
           timestamp: pos.timestamp,
         }),
         () => resolve(null),
-        { enableHighAccuracy: false, maximumAge: 10_000, timeout: 8_000 },
+        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 },
       );
     });
   }
   return (async () => {
     try {
       const { Geolocation } = await import('@capacitor/geolocation');
-      try {
-        const perm = await Geolocation.checkPermissions();
-        if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
-          await Geolocation.requestPermissions({ permissions: ['location'] });
-        }
-      } catch { /* ignore */ }
       const pos = await Geolocation.getCurrentPosition({
         enableHighAccuracy: false, // сетевая позиция — быстро, работает в помещении
-        timeout: 8_000,
-        maximumAge: 10_000,
+        timeout: 12_000,
+        // Принимаем кэш до 5 минут — важно для первого запуска, когда
+        // FusedLocationProvider ещё не прогрелся, но уже имеет позицию
+        // от другого приложения (карты, такси, etc.).
+        maximumAge: 300_000,
       });
       return {
         coords: {
@@ -102,7 +122,7 @@ export function getQuickFix(): Promise<GeoPosition | null> {
         timestamp: pos.timestamp ?? Date.now(),
       };
     } catch (e) {
-      console.warn('[geolocation] quick fix failed:', e);
+      console.warn('[geo] quick fix failed:', e);
       return null;
     }
   })();
@@ -122,18 +142,25 @@ export function watchPosition(
   let cleared = false;
 
   // ── Быстрый засев позиции (ВСЕ экраны) ──
-  // Сразу даём грубую сетевую позицию (~мгновенно, работает в помещении),
-  // чтобы карта центрировалась и маркер "вы" появился без ожидания спутников.
-  // Точный фикс придёт следом от основного watcher.
+  // 1. Сначала дожидаемся разрешения (один раз, общий промис)
+  // 2. Потом getQuickFix (уже без диалога) → грубая позиция мгновенно
+  // 3. Параллельно стартует точный watcher
   const t0 = Date.now();
-  void getQuickFix().then((pos) => {
-    const dt = Date.now() - t0;
-    if (pos && !cleared) {
-      console.log(`[geo] quickFix OK in ${dt}ms — acc=${pos.coords.accuracy.toFixed(0)}m`);
-      onSuccess(pos);
-    } else {
-      console.warn(`[geo] quickFix ${pos ? 'cleared' : 'FAILED'} after ${dt}ms`);
+  void ensureLocationPermission().then((granted) => {
+    if (!granted || cleared) {
+      console.warn(`[geo] permission ${granted ? 'OK but cleared' : 'DENIED'}`);
+      return;
     }
+    // Quick fix — после того как разрешение получено
+    void getQuickFix().then((pos) => {
+      const dt = Date.now() - t0;
+      if (pos && !cleared) {
+        console.log(`[geo] quickFix OK in ${dt}ms — acc=${pos.coords.accuracy.toFixed(0)}m`);
+        onSuccess(pos);
+      } else {
+        console.warn(`[geo] quickFix ${pos ? 'cleared' : 'FAILED'} after ${dt}ms`);
+      }
+    });
   });
 
   let inner: WatchHandle;
@@ -169,17 +196,11 @@ function watchNativeForeground(
 
   (async () => {
     try {
+      // Ждём разрешения (общий промис — без повторного диалога)
+      const granted = await ensureLocationPermission();
+      if (!granted || cleared) return;
+
       const { Geolocation } = await import('@capacitor/geolocation');
-      // Запросить разрешение явно (иначе watch молча не стартует).
-      try {
-        const perm = await Geolocation.checkPermissions();
-        if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
-          await Geolocation.requestPermissions({ permissions: ['location'] });
-        }
-      } catch { /* ignore — watch всё равно попробует */ }
-
-      if (cleared) return;
-
       const id = await Geolocation.watchPosition(
         {
           enableHighAccuracy: options.enableHighAccuracy ?? true,
@@ -212,7 +233,7 @@ function watchNativeForeground(
         watchId = id;
       }
     } catch (e) {
-      console.warn('[geolocation] native foreground watch failed:', e);
+      console.warn('[geo] native foreground watch failed:', e);
       onError({ code: 0, message: String(e) });
     }
   })();
@@ -316,7 +337,7 @@ function watchNativeBackground(
         },
       );
     } catch (e) {
-      console.warn('[geolocation] native start failed:', e);
+      console.warn('[geo] native start failed:', e);
       onError({ code: 0, message: String(e) });
     }
   })();

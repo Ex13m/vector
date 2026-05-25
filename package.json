@@ -1,7 +1,7 @@
 {
   "name": "vector",
   "private": true,
-  "version": "0.5.49",
+  "version": "0.5.50",
   "type": "module",
   "description": "Voice-guided cycling beacon — clock-position navigation PWA.",
   "scripts": {
@@ -11,7 +11,6 @@
     "lint": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@capacitor-community/safe-area": "^8.0.1",
     "@capacitor-community/text-to-speech": "^8.0.0",
     "@capacitor/android": "^8.3.4",
     "@capacitor/cli": "^8.3.4",

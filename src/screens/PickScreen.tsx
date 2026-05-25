@@ -603,7 +603,7 @@ export default function PickScreen({
         onClick={async () => { if (needsIosPermission()) await requestIosPermission(); }}
         style={{
           position: 'absolute',
-          top: 62,
+          top: 'calc(62px + env(safe-area-inset-top))',
           right: 12,
           width: 44,
           height: 44,

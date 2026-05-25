@@ -16,14 +16,11 @@ const config: CapacitorConfig = {
     useLegacyBridge: true,
   },
   plugins: {
-    // @capacitor-community/safe-area: для Capacitor 8 нужно отключить
-    // встроенную обработку insets, чтобы плагин сам управлял safe-area.
+    // Отключаем встроенную обработку insets — приложение рисуется на весь
+    // экран (edge-to-edge, принудительно на Android 15+). Отступы от
+    // статусбара/навбара — через CSS env(safe-area-inset-*).
     SystemBars: {
       insetsHandling: 'disable',
-    },
-    SafeArea: {
-      // DARK = light icons on dark background (matches our dark UI theme).
-      statusBarStyle: 'DARK',
     },
   },
 };
