@@ -34,7 +34,7 @@ import {
   forceRiding,
   forceLongStop,
 } from '../lib/rideStateMachine';
-import { speak, buildPhrase } from '../lib/voice';
+import { speak, buildPhrase, stopSpeaking } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
@@ -225,7 +225,7 @@ export default function RideScreen({
       settings.lang === 'de' ? 'Fahren Sie zum Ziel — die Navigation startet automatisch' :
       'Move towards your target — navigation will start automatically';
     // Небольшая задержка чтобы не столкнуться с инициализацией аудио.
-    const t = setTimeout(() => speak(phrase, settings.lang, settings.voiceURI), 800);
+    const t = setTimeout(() => speak(phrase, settings.lang, settings.voiceURI, { priority: true }), 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ridePhase]);
@@ -1037,7 +1037,7 @@ export default function RideScreen({
     if (!silenced) {
       // Голос «Вы у цели»
       const phrase = settings.lang === 'ru' ? 'Вы у цели' : settings.lang === 'de' ? 'Sie sind am Ziel' : 'You have arrived';
-      speak(phrase, settings.lang, settings.voiceURI);
+      speak(phrase, settings.lang, settings.voiceURI, { priority: true });
     }
   }, [silenced, settings.haptics, settings.lang, settings.voiceURI]);
 
@@ -1097,14 +1097,15 @@ export default function RideScreen({
   }, [tripName]);
 
   // ── Voice loop. Стабильный интервал, актуальные данные через ref.
-  const speakRef = useRef<() => void>(() => undefined);
+  const speakRef = useRef<(priority?: boolean) => void>(() => undefined);
   useEffect(() => {
-    speakRef.current = () => {
+    speakRef.current = (priority = false) => {
       if (!me) return;
       speak(
         buildPhrase({ lang: settings.lang, clockHM, distM, etaMin, reverse }),
         settings.lang,
         settings.voiceURI,
+        { priority },
       );
     };
   }, [me, settings.lang, settings.voiceURI, clockHM, distM, etaMin, reverse]);
@@ -1122,25 +1123,28 @@ export default function RideScreen({
             const phrase =
               settings.lang === 'ru' ? 'Поехали!' :
               settings.lang === 'de' ? 'Los geht\'s!' : 'Let\'s go!';
-            speak(phrase, settings.lang, settings.voiceURI);
+            speak(phrase, settings.lang, settings.voiceURI, { priority: true });
             lastVoiceRef.current = Date.now();
             // Через 1.5с — первая навигационная фраза (вектор на цель).
             // Пауза нужна чтобы «Поехали!» успело прозвучать целиком.
+            // priority: не даём min-gap проглотить её сразу после «Поехали!».
             if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
             resumeVoiceTimerRef.current = window.setTimeout(() => {
               lastVoiceRef.current = Date.now();
-              speakRef.current();
+              speakRef.current(true);
             }, 1500);
           }
           break;
         }
         case 'RESUME_RIDING': {
-          // Задержанное голосовое — через 1.5с озвучить текущую позицию
+          // Задержанное голосовое — через 1.5с озвучить текущую позицию.
+          // priority: обходит min-gap (иначе после остановки фраза могла бы
+          // схлопнуться с предыдущей каденцией).
           if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
           if (!silenced) {
             resumeVoiceTimerRef.current = window.setTimeout(() => {
               lastVoiceRef.current = Date.now();
-              speakRef.current();
+              speakRef.current(true);
             }, 1500);
           }
           break;
@@ -1157,7 +1161,7 @@ export default function RideScreen({
               : (settings.lang === 'ru' ? 'Остановка — двигайтесь к цели для продолжения' :
                  settings.lang === 'de' ? 'Angehalten — fahren Sie zum Ziel um fortzufahren' :
                  'Stopped — move towards your target to continue');
-            speak(phrase, settings.lang, settings.voiceURI);
+            speak(phrase, settings.lang, settings.voiceURI, { priority: true });
           }
           break;
         }
@@ -1278,7 +1282,7 @@ export default function RideScreen({
     const onVis = () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        speechSynthesis.cancel();
+        stopSpeaking(); // платформо-зависимо: натив TTS / web
       } catch {
         // ignore
       }
@@ -1323,7 +1327,7 @@ export default function RideScreen({
 
   const sayNow = useCallback(() => {
     resumeWakeAudio();
-    speakRef.current();
+    speakRef.current(true); // ручной голос — всегда, в обход min-gap
   }, []);
 
   function manualStop() {
@@ -1778,7 +1782,10 @@ export default function RideScreen({
         onMute={() => {
           haptic('light', settings.haptics);
           setSilenced((v) => !v);
-          if (!silenced) speechSynthesis.cancel();
+          // Глушим текущую речь при включении mute. stopSpeaking() —
+          // платформо-зависимо: на APK останавливает нативный TTS (раньше
+          // speechSynthesis.cancel() там был no-op → фраза договаривала).
+          if (!silenced) stopSpeaking();
         }}
         onStop={() => {
           haptic('heavy', settings.haptics);

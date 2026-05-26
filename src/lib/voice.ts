@@ -20,18 +20,26 @@ function langTag(lang: VoiceLang): string {
 }
 
 /** Web Speech API путь (браузер / iOS Safari) */
-function speakWeb(text: string, lang: VoiceLang, voiceURI?: string | null) {
+function speakWeb(text: string, lang: VoiceLang, voiceURI: string | null | undefined, interrupt: boolean) {
   if (!('speechSynthesis' in window)) return;
+  const ss = window.speechSynthesis;
+  // Восстановление из «paused»-залипания: Android Chrome усыпляет движок,
+  // и тогда speak() принимается в очередь, но не стартует.
+  if (ss.paused) ss.resume();
+  // Прерываем играющую фразу ТОЛЬКО для приоритетных (старт/прибытие/пауза/
+  // ручной голос). Рутинная каденция НЕ рвёт текущую — иначе при наложении
+  // триггеров фразы обрывают друг друга (главная причина «залипания»).
+  if (interrupt && (ss.speaking || ss.pending)) ss.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = langTag(lang);
   utter.rate = 1.0;
   utter.pitch = 1.0;
-  if (voiceURI) {
-    const v = speechSynthesis.getVoices().find((x) => x.voiceURI === voiceURI);
-    if (v) utter.voice = v;
-  }
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utter);
+  // Гарантируем выбранный голос: по voiceURI, иначе первый под язык.
+  const voices = ss.getVoices();
+  const v = (voiceURI ? voices.find((x) => x.voiceURI === voiceURI) : undefined)
+    ?? voices.find((x) => x.lang.toLowerCase().startsWith(lang));
+  if (v) utter.voice = v;
+  ss.speak(utter);
 }
 
 /** Последняя ошибка нативного TTS — для видимой диагностики на экране. */
@@ -57,11 +65,12 @@ function showTtsDiag(msg: string) {
 }
 
 /** Native TTS путь (Capacitor Android) */
-async function speakNative(text: string, lang: VoiceLang) {
+async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
   try {
     const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
-    // Прерываем предыдущую фразу — поведение совместимое с web speechSynthesis.cancel()
-    try { await TextToSpeech.stop(); } catch { /* ignore */ }
+    // stop() ТОЛЬКО для приоритетных фраз. Для рутинной каденции не прерываем —
+    // иначе наложение двух speak() (stop одного рвёт speak другого) даёт тишину.
+    if (interrupt) { try { await TextToSpeech.stop(); } catch { /* ignore */ } }
     await TextToSpeech.speak({
       text,
       lang: langTag(lang),
@@ -78,11 +87,44 @@ async function speakNative(text: string, lang: VoiceLang) {
   }
 }
 
-export function speak(text: string, lang: VoiceLang = 'ru', voiceURI?: string | null) {
+// ── Коалесцирование: схлопывает наложение триггеров на переходах фаз. ─────────
+// Несколько источников (интервал, GPS-дубль, таймер +1.5с, wake) могут вызвать
+// speak() с разницей ~1с. Без этого они через stop()/cancel() обрывают друг
+// друга → клиппинг/тишина. MIN_GAP сильно меньше минимального интервала
+// озвучки (60с), поэтому штатную каденцию не задевает.
+let _lastSpeakAt = 0;
+const MIN_GAP_MS = 3500;
+
+/**
+ * @param opts.priority — приоритетная фраза (старт/прибытие/пауза/ручной голос):
+ *   обходит min-gap и прерывает текущую речь. Рутинная каденция (по умолчанию)
+ *   пропускается, если только что говорили, и не рвёт играющую фразу.
+ */
+export function speak(
+  text: string,
+  lang: VoiceLang = 'ru',
+  voiceURI?: string | null,
+  opts?: { priority?: boolean },
+) {
+  const priority = opts?.priority ?? false;
+  const now = Date.now();
+  if (!priority && now - _lastSpeakAt < MIN_GAP_MS) return;
+  _lastSpeakAt = now;
   if (isNative) {
-    void speakNative(text, lang);
+    void speakNative(text, lang, priority);
   } else {
-    speakWeb(text, lang, voiceURI);
+    speakWeb(text, lang, voiceURI, priority);
+  }
+}
+
+/** Немедленно прервать текущую речь (платформо-зависимо: натив TTS / web). */
+export function stopSpeaking(): void {
+  if (isNative) {
+    void import('@capacitor-community/text-to-speech')
+      .then(({ TextToSpeech }) => TextToSpeech.stop())
+      .catch(() => { /* ignore */ });
+  } else if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
   }
 }
 
