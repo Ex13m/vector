@@ -28,6 +28,12 @@ export type RideMachineState = {
   slowSince: number | null;
   /** Была ли хоть одна фаза RIDING (необратимость PRE_RIDE) */
   everRode: boolean;
+  /**
+   * LONG_STOP вошли ВРУЧНУЮ (кнопкой PAUSE). Авто-возобновление по
+   * скорости/дистанции отключено — выйти можно только кнопкой PLAY.
+   * Для авто-LONG_STOP (3 мин стоянки) = false, там авто-резюм работает.
+   */
+  manualStop: boolean;
 };
 
 export type TransitionSignal =
@@ -77,6 +83,7 @@ export function createInitialState(anchor: LatLng | null): RideMachineState {
     resumeFixCount: 0,
     slowSince: null,
     everRode: false,
+    manualStop: false,
   };
 }
 
@@ -144,6 +151,7 @@ export function tickMachine(
             phaseEnteredAt: tick.timestamp,
             anchorPoint: tick.pos, // запомнить точку для 50м порога
             fastFixCount: 0,
+            manualStop: false, // авто-стоп → авто-резюм разрешён
           },
           signal: { type: 'ENTER_LONG_STOP' },
         };
@@ -171,7 +179,10 @@ export function tickMachine(
 
     // ──────── LONG_STOP ────────
     case 'LONG_STOP': {
-      // Логика аналогична PRE_RIDE: 50м + >8 км/ч + 3 подряд
+      // Ручная пауза (кнопкой PAUSE) — держим до PLAY. Авто-возобновление по
+      // скорости/дистанции отключено: иначе пауза «на ходу» сама бы снялась.
+      if (state.manualStop) return { nextState: state, signal: null };
+      // Авто-LONG_STOP: логика как PRE_RIDE — 50м + >8 км/ч + 3 подряд
       if (tick.distFromAnchor >= START_DIST_M && tick.speedMps >= START_SPEED_MPS) {
         const count = state.fastFixCount + 1;
         if (count >= START_CONSECUTIVE) {
@@ -212,6 +223,7 @@ export function forceRiding(
       resumeFixCount: 0,
       slowSince: null,
       everRode: true,
+      manualStop: false, // PLAY снимает ручную паузу
     },
     // «Поехали!» + навигация. from определяет только фразу-реакцию.
     signal: { type: 'START_RIDING', from: state.phase === 'LONG_STOP' ? 'LONG_STOP' : 'PRE_RIDE', manual: true },
@@ -229,10 +241,11 @@ export function forceLongStop(
       ...state,
       phase: 'LONG_STOP',
       phaseEnteredAt: timestamp,
-      anchorPoint: pos, // якорь для 50м авто-возобновления
+      anchorPoint: pos,
       fastFixCount: 0,
       resumeFixCount: 0,
       slowSince: null,
+      manualStop: true, // держим до PLAY — авто-резюм выключен
     },
     signal: { type: 'ENTER_LONG_STOP', manual: true },
   };

@@ -234,14 +234,18 @@ export default function RideScreen({
   // API поддерживается Chrome 84+, Safari 16.4+, Edge 84+.
   // Lock автоматически отпускается при скрытии вкладки — перезапрашиваем
   // при visibilitychange. Во время паузы отпускаем чтобы экран мог погаснуть.
+  // keepAwake — единственная зависимость эффекта: он НЕ пересоздаётся на
+  // частых RIDING↔SHORT_STOP (иначе wake-lock дёргался бы release/request в
+  // цикле). Держим экран в активных фазах; в LONG_STOP (пауза) и после
+  // прибытия — отпускаем, экран может гаснуть.
+  const keepAwake = !arrived && ridePhase !== 'LONG_STOP';
   useEffect(() => {
-    if (!('wakeLock' in navigator)) return;
+    if (!('wakeLock' in navigator) || !keepAwake) return;
     let lock: WakeLockSentinel | null = null;
     let released = false;
 
     const requestLock = async () => {
-      // В LONG_STOP (= ручная/авто пауза) отпускаем — экран может гаснуть.
-      if (released || arrived || ridePhase === 'LONG_STOP') return;
+      if (released) return;
       try {
         lock = await navigator.wakeLock.request('screen');
         lock.addEventListener('release', () => { lock = null; });
@@ -262,7 +266,7 @@ export default function RideScreen({
       document.removeEventListener('visibilitychange', onVis);
       lock?.release();
     };
-  }, [ridePhase, arrived]);
+  }, [keepAwake]);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
