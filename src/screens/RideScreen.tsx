@@ -1147,10 +1147,12 @@ export default function RideScreen({
         case 'ENTER_LONG_STOP': {
           // Голос и таймер уже останавливаются через ridePhase guard.
           if (!silenced) {
-            const phrase =
-              settings.lang === 'ru' ? 'Остановка — двигайтесь к цели для продолжения' :
-              settings.lang === 'de' ? 'Angehalten — fahren Sie zum Ziel um fortzufahren' :
-              'Stopped — move towards your target to continue';
+            const phrase = sig.manual
+              ? (settings.lang === 'ru' ? 'Долгая пауза' :
+                 settings.lang === 'de' ? 'Lange Pause' : 'Long pause')
+              : (settings.lang === 'ru' ? 'Остановка — двигайтесь к цели для продолжения' :
+                 settings.lang === 'de' ? 'Angehalten — fahren Sie zum Ziel um fortzufahren' :
+                 'Stopped — move towards your target to continue');
             speak(phrase, settings.lang, settings.voiceURI);
           }
           break;

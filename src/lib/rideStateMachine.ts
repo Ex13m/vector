@@ -31,10 +31,10 @@ export type RideMachineState = {
 };
 
 export type TransitionSignal =
-  | { type: 'START_RIDING'; from: 'PRE_RIDE' | 'LONG_STOP' }
+  | { type: 'START_RIDING'; from: 'PRE_RIDE' | 'LONG_STOP'; manual?: boolean }
   | { type: 'RESUME_RIDING' }
   | { type: 'ENTER_SHORT_STOP' }
-  | { type: 'ENTER_LONG_STOP' }
+  | { type: 'ENTER_LONG_STOP'; manual?: boolean }
   | null;
 
 export type GpsTick = {
@@ -214,7 +214,7 @@ export function forceRiding(
       everRode: true,
     },
     // «Поехали!» + навигация. from определяет только фразу-реакцию.
-    signal: { type: 'START_RIDING', from: state.phase === 'LONG_STOP' ? 'LONG_STOP' : 'PRE_RIDE' },
+    signal: { type: 'START_RIDING', from: state.phase === 'LONG_STOP' ? 'LONG_STOP' : 'PRE_RIDE', manual: true },
   };
 }
 
@@ -234,6 +234,6 @@ export function forceLongStop(
       resumeFixCount: 0,
       slowSince: null,
     },
-    signal: { type: 'ENTER_LONG_STOP' },
+    signal: { type: 'ENTER_LONG_STOP', manual: true },
   };
 }
