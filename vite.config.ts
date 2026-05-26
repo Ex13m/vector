@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -72,4 +73,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version),
   },
   server: { host: true, port: 5173 },
+  // Юнит-тесты (Vitest). Чистые функции — окружение 'node', без DOM.
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+  },
 });

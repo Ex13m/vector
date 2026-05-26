@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.58] — 2026-05-26
+
+### Внутреннее
+
+- **Добавлены автотесты (Vitest)** — `npm test` (разовый прогон) и `npm run test:watch` (re-run на сохранение). Покрыты чистые функции: `geo.ts` (часы-математика `relativeToClock`/`relativeToClockHM`, геодезия `distanceM`/`bearingTo`, форматтеры) и `rideStateMachine.ts` (авто-детект старта/остановки, ручной старт/пауза, флаг `manualStop`). 45 тестов. Тесты лежат рядом с кодом (`*.test.ts`), в сборку APK/PWA не попадают (devDependency). Есть регрессионный тест на свежий баг v0.5.57 (ручная пауза не авто-возобновляется).
+
 ## [0.5.57] — 2026-05-26
 
 ### Исправлено

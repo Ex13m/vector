@@ -1,14 +1,16 @@
 {
   "name": "vector",
   "private": true,
-  "version": "0.5.57",
+  "version": "0.5.58",
   "type": "module",
   "description": "Voice-guided cycling beacon — clock-position navigation PWA.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 5173",
-    "lint": "tsc -b --noEmit"
+    "lint": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@capacitor-community/text-to-speech": "^8.0.0",
@@ -31,6 +33,7 @@
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vite-plugin-pwa": "^0.21.0",
+    "vitest": "^2.1.9",
     "workbox-window": "^7.3.0"
   }
 }
