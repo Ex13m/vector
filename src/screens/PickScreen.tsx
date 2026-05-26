@@ -61,6 +61,8 @@ export default function PickScreen({
   const targetMarkerRef = useRef<Marker | null>(null);
   const meMarkerRef = useRef<Marker | null>(null);
   const meArrowRef = useRef<SVGElement | null>(null);
+  // Ref для доступа к актуальному me из map.on('load') callback.
+  const meRef = useRef<LatLng | null>(null);
   const distancePillRef = useRef<Marker | null>(null);
   // Ref для доступа к continuationTrail / waypoints из map.on('load') callback.
   const contTrailRef = useRef(continuationTrail);
@@ -69,6 +71,7 @@ export default function PickScreen({
   contWpRef.current = continuationWaypoints;
 
   const [me, setMe] = useState<LatLng | null>(null);
+  meRef.current = me;
   const [compassHeading, setCompassHeading] = useState<number | null>(null);
   const [target, setTarget] = useState<LatLng | null>(null);
   const [targetName, setTargetName] = useState<string | null>(null);
@@ -172,6 +175,24 @@ export default function PickScreen({
             { padding: 60, animate: false, maxZoom: 16 },
           );
         }
+      }
+      // Fix race condition: GPS мог прийти до загрузки карты.
+      // useEffect([me]) не re-fire'ится от ref-мутаций, поэтому при быстром
+      // кэшированном GPS на повторных запусках маркер мог не создаться.
+      // Создаём маркер + flyTo прямо здесь, если me уже есть.
+      const pos = meRef.current;
+      if (pos && !meMarkerRef.current) {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:relative;width:32px;height:32px;pointer-events:none';
+        el.innerHTML = `
+          <div style="position:absolute;inset:0;border-radius:50%;background:rgba(72,222,148,0.15);box-shadow:0 0 0 5px rgba(72,222,148,0.08),0 0 14px rgba(72,222,148,0.4)"></div>
+          <svg width="26" height="26" viewBox="0 0 24 24"
+               style="position:absolute;left:3px;top:3px;transform:rotate(0deg);transition:transform 200ms ease-out">
+            <polygon points="12,2 18,20 12,16 6,20" fill="${C.ok}" stroke="${C.bg}" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>`;
+        meArrowRef.current = el.querySelector('svg');
+        meMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([pos.lng, pos.lat]).addTo(map);
+        map.flyTo({ center: [pos.lng, pos.lat], zoom: 15, bearing: 0, duration: 800 });
       }
     });
 
