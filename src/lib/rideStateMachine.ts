@@ -192,3 +192,48 @@ export function tickMachine(
     }
   }
 }
+
+// ── Ручные переходы (кнопка PLAY / PAUSE) — обгон автодетекта ─────────────────
+// Кнопка в UI: «не едем» (PRE_RIDE/LONG_STOP) → PLAY → forceRiding;
+// «едем» (RIDING/SHORT_STOP) → PAUSE → forceLongStop.
+// Автодетект в tickMachine остаётся как fallback.
+
+/** Ручной старт/возобновление: PRE_RIDE | LONG_STOP → RIDING. */
+export function forceRiding(
+  state: RideMachineState,
+  timestamp: number,
+): { nextState: RideMachineState; signal: TransitionSignal } {
+  return {
+    nextState: {
+      ...state,
+      phase: 'RIDING',
+      phaseEnteredAt: timestamp,
+      fastFixCount: 0,
+      resumeFixCount: 0,
+      slowSince: null,
+      everRode: true,
+    },
+    // «Поехали!» + навигация. from определяет только фразу-реакцию.
+    signal: { type: 'START_RIDING', from: state.phase === 'LONG_STOP' ? 'LONG_STOP' : 'PRE_RIDE' },
+  };
+}
+
+/** Ручная пауза: RIDING | SHORT_STOP → LONG_STOP. */
+export function forceLongStop(
+  state: RideMachineState,
+  pos: LatLng,
+  timestamp: number,
+): { nextState: RideMachineState; signal: TransitionSignal } {
+  return {
+    nextState: {
+      ...state,
+      phase: 'LONG_STOP',
+      phaseEnteredAt: timestamp,
+      anchorPoint: pos, // якорь для 50м авто-возобновления
+      fastFixCount: 0,
+      resumeFixCount: 0,
+      slowSince: null,
+    },
+    signal: { type: 'ENTER_LONG_STOP' },
+  };
+}

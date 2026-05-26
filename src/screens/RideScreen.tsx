@@ -31,6 +31,8 @@ import {
   type TransitionSignal,
   createInitialState,
   tickMachine,
+  forceRiding,
+  forceLongStop,
 } from '../lib/rideStateMachine';
 import { speak, buildPhrase } from '../lib/voice';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
@@ -115,9 +117,6 @@ export default function RideScreen({
   // По умолчанию включён — телефон в кармане не сбросит карту случайным касанием.
   const [lockView, setLockView] = useState(true);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
-  const [paused, setPaused] = useState(savedSession?.paused ?? false);
-  const pausedRef = useRef(paused);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
   const [silenced, setSilenced] = useState(false);
   // Рефы для фоновой озвучки из GPS-колбэка (setInterval троттлится при
   // выключенном экране, а GPS-колбэк из натива — нет).
@@ -241,7 +240,8 @@ export default function RideScreen({
     let released = false;
 
     const requestLock = async () => {
-      if (released || paused || arrived) return;
+      // В LONG_STOP (= ручная/авто пауза) отпускаем — экран может гаснуть.
+      if (released || arrived || ridePhase === 'LONG_STOP') return;
       try {
         lock = await navigator.wakeLock.request('screen');
         lock.addEventListener('release', () => { lock = null; });
@@ -262,7 +262,7 @@ export default function RideScreen({
       document.removeEventListener('visibilitychange', onVis);
       lock?.release();
     };
-  }, [paused, arrived]);
+  }, [ridePhase, arrived]);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
@@ -335,8 +335,8 @@ export default function RideScreen({
         }
         if (signal) transitionHandlerRef.current(signal);
 
-        // ── Запись трека: только RIDING и SHORT_STOP
-        if (pausedRef.current) return;
+        // ── Запись трека: только RIDING и SHORT_STOP.
+        // Пауза = фаза LONG_STOP (ручная или авто) → запись/голос глушатся здесь.
         const phase = nextState.phase;
         if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
 
@@ -413,7 +413,6 @@ export default function RideScreen({
               ridePhase: s.ridePhase,
               speedMaxMps: speedMaxRef.current,
               startedAt: startedAtRef.current,
-              paused: s.paused,
               savedAt: now,
             });
           }
@@ -433,7 +432,7 @@ export default function RideScreen({
       if (resumeVoiceTimerRef.current) window.clearTimeout(resumeVoiceTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // GPS watch создаётся один раз, paused проверяется через pausedRef
+  }, []); // GPS watch создаётся один раз, фаза читается через machineRef
 
   // ── GPS-lost watchdog: если давно не было фикса — поднять флаг.
   useEffect(() => {
@@ -449,13 +448,13 @@ export default function RideScreen({
   // значения без перезапуска эффекта (избегаем JSON.stringify в setInterval
   // setup/teardown цикле).
   const sessionSnapshotRef = useRef({
-    target, targetName, reverse, time, ridePhase, paused, arrived,
+    target, targetName, reverse, time, ridePhase, arrived,
   });
   useEffect(() => {
     sessionSnapshotRef.current = {
-      target, targetName, reverse, time, ridePhase, paused, arrived,
+      target, targetName, reverse, time, ridePhase, arrived,
     };
-  }, [target, targetName, reverse, time, ridePhase, paused, arrived]);
+  }, [target, targetName, reverse, time, ridePhase, arrived]);
   const lastSavedTrailLenRef = useRef(0);
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -475,7 +474,6 @@ export default function RideScreen({
         ridePhase: s.ridePhase,
         speedMaxMps: speedMaxRef.current,
         startedAt: startedAtRef.current,
-        paused: s.paused,
         savedAt: Date.now(),
       });
     }, 10_000); // 10с вместо 3с — меньше нагрузка на длинных поездках
@@ -857,12 +855,12 @@ export default function RideScreen({
     }
   }, [me, target]);
 
-  // ── Sec timer (стопается на pause и в PRE_RIDE/LONG_STOP).
+  // ── Sec timer (стопается в PRE_RIDE/LONG_STOP — пауза = LONG_STOP).
   useEffect(() => {
-    if (paused || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
+    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     const id = setInterval(() => setTime((s) => s + 1), 1000);
     return () => clearInterval(id);
-  }, [paused, ridePhase]);
+  }, [ridePhase]);
 
   // Auto-hide chrome убран — по требованию иконки всегда видны.
 
@@ -1043,11 +1041,11 @@ export default function RideScreen({
   // В PRE_RIDE GPS-джиттер может «приблизить» к цели — игнорируем.
   // Round-trip guard: если старт был рядом с целью — ждём пока отъедем.
   useEffect(() => {
-    if (!me || arrived || paused) return;
+    if (!me || arrived) return;
     if (ridePhase !== 'RIDING') return;
     if (startedAtTargetRef.current) return;
     if (distM < ARRIVED_M) triggerArrived();
-  }, [me, distM, arrived, paused, ridePhase, triggerArrived]);
+  }, [me, distM, arrived, ridePhase, triggerArrived]);
 
   // ── Сохранение поездки (идемпотентно, guard по savedTripIdRef).
   // Вызывается синхронно из onFinish (иначе навигация размонтирует экран
@@ -1171,7 +1169,7 @@ export default function RideScreen({
   }, [me, hasFix]);
 
   useEffect(() => {
-    if (silenced || paused || arrived || settings.intervalSec === 0 || !hasFix) return;
+    if (silenced || arrived || settings.intervalSec === 0 || !hasFix) return;
     if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastVoiceRef.current === 0 && !pendingWakeSpeak) {
       lastVoiceRef.current = Date.now();
@@ -1182,13 +1180,13 @@ export default function RideScreen({
       speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, hasFix, pendingWakeSpeak, ridePhase]);
+  }, [silenced, arrived, settings.intervalSec, hasFix, pendingWakeSpeak, ridePhase]);
 
   // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
   // Скрыт в PRE_RIDE / LONG_STOP — голос там молчит.
   const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
   useEffect(() => {
-    if (silenced || paused || arrived || settings.intervalSec === 0 || !hasFix
+    if (silenced || arrived || settings.intervalSec === 0 || !hasFix
         || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') {
       setNextVoiceSec(null);
       return;
@@ -1205,7 +1203,7 @@ export default function RideScreen({
     update();
     const id = window.setInterval(update, 500);
     return () => window.clearInterval(id);
-  }, [silenced, paused, arrived, settings.intervalSec, hasFix, ridePhase]);
+  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase]);
 
   // ── Haptics: лёгкая вибрация на смену часа — только в RIDING.
   // В PRE_RIDE / LONG_STOP пользователь крутит телефон → часы меняются
@@ -1289,10 +1287,10 @@ export default function RideScreen({
   useEffect(() => {
     if (!pendingWakeSpeak || !me) return;
     setPendingWakeSpeak(false);
-    if (silenced || paused || arrived) return;
+    if (silenced || arrived || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     lastVoiceRef.current = Date.now();
     speakRef.current();
-  }, [pendingWakeSpeak, me, silenced, paused, arrived]);
+  }, [pendingWakeSpeak, me, silenced, arrived, ridePhase]);
 
   // ── Back-кнопка: pushState + popstate. На Arrived — выходим без вопроса.
   useEffect(() => {
@@ -1399,12 +1397,12 @@ export default function RideScreen({
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: paused ? C.target : gpsLost ? C.danger : C.ok,
-            boxShadow: `0 0 8px ${paused ? C.target : gpsLost ? C.danger : C.ok}`,
-            animation: gpsLost || paused ? 'none' : 'liveBlink 1.6s ease-in-out infinite',
+            background: ridePhase === 'LONG_STOP' ? C.target : gpsLost ? C.danger : C.ok,
+            boxShadow: `0 0 8px ${ridePhase === 'LONG_STOP' ? C.target : gpsLost ? C.danger : C.ok}`,
+            animation: gpsLost || ridePhase === 'LONG_STOP' ? 'none' : 'liveBlink 1.6s ease-in-out infinite',
           }}
         />
-        {paused ? 'PAUSED' : gpsLost ? 'GPS LOST' : 'LIVE'}
+        {ridePhase === 'LONG_STOP' ? 'PAUSED' : gpsLost ? 'GPS LOST' : 'LIVE'}
       </div>
 
       {/* Layer button (top-left) */}
@@ -1750,12 +1748,22 @@ export default function RideScreen({
 
       {/* Toolbar 4 buttons */}
       <Toolbar
-        paused={paused}
+        stopped={ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP'}
         silenced={silenced}
         onPause={() => {
           haptic('medium', settings.haptics);
-          setPaused((p) => !p);
           resumeWakeAudio();
+          // PLAY/PAUSE = ручной обгон автодетекта state-машины.
+          // «Не едем» → forceRiding; «едем» → forceLongStop.
+          const m = machineRef.current;
+          const now = Date.now();
+          const stopped = m.phase === 'PRE_RIDE' || m.phase === 'LONG_STOP';
+          const { nextState, signal } = stopped
+            ? forceRiding(m, now)
+            : forceLongStop(m, me ?? m.anchorPoint ?? { lat: 0, lng: 0 }, now);
+          machineRef.current = nextState;
+          setRidePhase(nextState.phase);
+          if (signal) transitionHandlerRef.current(signal);
         }}
         onSay={() => {
           haptic('light', settings.haptics);
@@ -2021,14 +2029,14 @@ function fmtCountdown(sec: number): string {
 }
 
 function Toolbar({
-  paused,
+  stopped,
   silenced,
   onPause,
   onSay,
   onMute,
   onStop,
 }: {
-  paused: boolean;
+  stopped: boolean;
   silenced: boolean;
   onPause: () => void;
   onSay: () => void;
@@ -2051,8 +2059,8 @@ function Toolbar({
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
-      <ToolButton onClick={onPause} active={paused} label={paused ? 'PLAY' : 'PAUSE'}>
-        {paused ? (
+      <ToolButton onClick={onPause} active={stopped} label={stopped ? 'PLAY' : 'PAUSE'}>
+        {stopped ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <polygon points="6,4 20,12 6,20" />
           </svg>

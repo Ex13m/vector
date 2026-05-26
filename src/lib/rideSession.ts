@@ -28,8 +28,6 @@ export type RideSession = {
   speedMaxMps: number;
   /** Когда поездка стартовала */
   startedAt: number;
-  /** Пауза? */
-  paused: boolean;
   /** Таймстамп последнего сохранения */
   savedAt: number;
 };
