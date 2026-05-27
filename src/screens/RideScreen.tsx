@@ -1463,8 +1463,14 @@ export default function RideScreen({
     >
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* LIVE / GPS LOST badge */}
+      {/* LIVE / GPS LOST badge. Тап = метка в diag-лог (полевой дебаг): ткнул
+          когда заметил косяк — в логе появляется MARK, по нему найду окружение. */}
       <div
+        onClick={(e) => {
+          e.stopPropagation();
+          haptic('medium', settings.haptics);
+          dlog('MARK', `user ph=${ridePhase} gpsLost=${gpsLost}`);
+        }}
         style={{
           position: 'absolute',
           top: 'calc(14px + env(safe-area-inset-top))',
