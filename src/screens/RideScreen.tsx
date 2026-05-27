@@ -57,10 +57,10 @@ type Props = {
   onSettingsChange: (patch: Partial<Settings>) => void;
   onExit: () => void;
   onJournal: () => void;
-  /** Continuation: «Новая цель» — передаёт трек + статистику, переход к выбору цели */
-  onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => void;
+  /** Continuation: «Новая цель» — передаёт трек + статистику + id/имя поездки */
+  onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[], tripId: string | null, tripName: string) => void;
   /** Continuation: «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE */
-  onContinueHome: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[]) => void;
+  onContinueHome: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[], tripId: string | null, tripName: string) => void;
   /** Накопленная дистанция из предыдущего сегмента (continuation) */
   contRiddenM: number;
   /** Накопленное время из предыдущего сегмента (continuation) */
@@ -69,6 +69,9 @@ type Props = {
   contSpeedMax: number;
   /** Маркеры точек смены маршрута из предыдущих сегментов */
   contWaypoints: LatLng[];
+  /** id/имя поездки при продолжении — чтобы дописывать в ТУ ЖЕ запись, не плодить вторую */
+  continuationTripId?: string | null;
+  continuationTripName?: string | null;
 };
 
 const ARRIVED_M = 30;
@@ -92,6 +95,8 @@ export default function RideScreen({
   contElapsedSec,
   contSpeedMax,
   contWaypoints,
+  continuationTripId = null,
+  continuationTripName = null,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -126,7 +131,11 @@ export default function RideScreen({
   useEffect(() => { intervalSecRef.current = settings.intervalSec; }, [settings.intervalSec]);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [arrived, setArrived] = useState(false);
-  const [tripName, setTripName] = useState('');
+  const [tripName, setTripName] = useState(continuationTripName ?? '');
+  // Зеркало имени в ref — persistTrip перезаписывает ту же поездку (продолжение
+  // после «мягкого» прибытия), сохраняя имя/переименование между вызовами.
+  const tripNameRef = useRef('');
+  tripNameRef.current = tripName;
   const [peek, setPeek] = useState(false);
   const [needPerm, setNeedPerm] = useState(false);
   const [gpsLost, setGpsLost] = useState(true);
@@ -176,7 +185,9 @@ export default function RideScreen({
   const [riddenM, setRiddenM] = useState<number>(() => riddenRef.current);
   const longPressTimer = useRef<number | null>(null);
   const lastClockRef = useRef<number | null>(null);
-  const savedTripIdRef = useRef<string | null>(null);
+  // При продолжении наследуем id исходной поездки → persistTrip перезапишет
+  // ту же запись (один растущий трек), а не создаст вторую.
+  const savedTripIdRef = useRef<string | null>(continuationTripId);
   const frozenEtaRef = useRef<number | null>(null);
 
   const arrivedRef = useRef(false);
@@ -1067,24 +1078,47 @@ export default function RideScreen({
     if (distM < ARRIVED_M) triggerArrived();
   }, [me, distM, arrived, ridePhase, triggerArrived]);
 
+  // ── «Мягкое» прибытие: доехал, но поехал дальше (забыл сменить цель).
+  // Если после arrived снова едешь (RIDING) и отъехал от цели за порог —
+  // снимаем флаг. Голос/камера/wake-lock/автосохранение сессии оживают (они
+  // гейтятся на arrived), цель та же → озвучивается РАСТУЩАЯ дистанция, маяк
+  // «за спиной». Трек продолжает расти в той же поездке (persistTrip
+  // перезапишет её при следующем прибытии/стопе). Требуем RIDING, иначе
+  // GPS-джиттер/ходьба у цели ложно снимали бы прибытие.
+  useEffect(() => {
+    if (!arrived || !me) return;
+    if (ridePhase === 'RIDING' && distM > ARRIVED_M + 50) {
+      setArrived(false);
+    }
+  }, [arrived, me, distM, ridePhase]);
+
   // ── Сохранение поездки (идемпотентно, guard по savedTripIdRef).
   // Вызывается синхронно из onFinish (иначе навигация размонтирует экран
   // до того как сработает эффект → трек терялся) и из auto-save эффекта.
   const persistTrip = useCallback(() => {
-    if (savedTripIdRef.current) return;
     if (trailRef.current.length === 0) return; // нечего сохранять
-    const id = String(Date.now());
-    savedTripIdRef.current = id;
-    const defaultName = `Поездка от ${new Date().toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })}`;
-    setTripName(defaultName);
+    // Один id на всю поездку: первый вызов минтит, последующие ПЕРЕЗАПИСЫВАЮТ
+    // ту же запись (продолжение после «мягкого» прибытия / continuation) —
+    // не плодим второй трек.
+    let id = savedTripIdRef.current;
+    if (!id) {
+      id = String(Date.now());
+      savedTripIdRef.current = id;
+    }
+    let name = tripNameRef.current;
+    if (!name) {
+      name = `Поездка от ${new Date().toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`;
+      tripNameRef.current = name;
+      setTripName(name);
+    }
     const trip: Trip = {
       id,
-      name: defaultName,
+      name,
       startedAt: startedAtRef.current,
       finishedAt: Date.now(),
       distM: Math.round(ridden),
@@ -1857,18 +1891,20 @@ export default function RideScreen({
           onNewTarget={() => {
             setShowQuitModal(false);
             haptic('medium', settings.haptics);
+            persistTrip(); // гарантируем сохранение + id, чтобы продолжение дописало в ТУ ЖЕ запись
             const tr = trailRef.current;
             const wp = me ? [...contWaypoints, me] : contWaypoints;
-            onContinuePick(tr, ridden, time, speedMaxRef.current, wp);
+            onContinuePick(tr, ridden, time, speedMaxRef.current, wp, savedTripIdRef.current, tripNameRef.current);
           }}
           onGoHome={
             trailRef.current.length > 0
               ? () => {
                   setShowQuitModal(false);
                   haptic('medium', settings.haptics);
+                  persistTrip();
                   const tr = trailRef.current;
                   const wp = me ? [...contWaypoints, me] : contWaypoints;
-                  onContinueHome(tr, ridden, time, speedMaxRef.current, wp);
+                  onContinueHome(tr, ridden, time, speedMaxRef.current, wp, savedTripIdRef.current, tripNameRef.current);
                 }
               : null
           }
