@@ -255,6 +255,7 @@ export default function App() {
           onSkip={goRide}
           onDone={goRide}
           onBack={() => setScreen('pick')}
+          continuationTrail={contTrail ?? resumeTrail}
         />
       );
     }

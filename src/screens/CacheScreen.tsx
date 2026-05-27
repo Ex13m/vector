@@ -17,6 +17,7 @@ import {
 } from '../lib/tiles';
 import { tileUrl } from '../lib/mapStyles';
 import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
+import type { TrailPoint } from '../lib/storage';
 import { haptic } from '../lib/feedback';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
@@ -30,6 +31,9 @@ type Props = {
   onSkip: () => void;
   onDone: () => void;
   onBack: () => void;
+  /** Уже пройденный трек (при продолжении) — рисуем зелёным пунктиром, чтобы
+   *  было видно, что продолжаешь старый маршрут, а не едешь заново. */
+  continuationTrail?: TrailPoint[] | null;
 };
 
 // Адаптивный диапазон зумов: «что видно — то и кэшируется». Берём 3 уровня
@@ -40,7 +44,9 @@ function adaptiveZooms(currentZoom: number): number[] {
   return [Math.max(8, z - 1), z, Math.min(18, z + 1)];
 }
 
-export default function CacheScreen({ settings, target, box, onSkip, onDone, onBack }: Props) {
+export default function CacheScreen({ settings, target, box, onSkip, onDone, onBack, continuationTrail = null }: Props) {
+  const contTrailRef = useRef(continuationTrail);
+  contTrailRef.current = continuationTrail;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const targetMarkerRef = useRef<Marker | null>(null);
@@ -93,12 +99,28 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       .setLngLat([target.lng, target.lat])
       .addTo(map);
 
+    const fillContTrail = () => {
+      const ct = contTrailRef.current;
+      const src = map.getSource('cont-trail') as maplibregl.GeoJSONSource | undefined;
+      if (src && ct && ct.length > 1) {
+        src.setData({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: ct.map(p => [p.lng, p.lat]) },
+          properties: {},
+        });
+      }
+    };
+
     map.on('load', () => {
+      addContTrailSource(map);
       addVectorSource(map);
+      fillContTrail();
     });
 
     map.on('styledata', () => {
+      addContTrailSource(map);
       addVectorSource(map);
+      fillContTrail();
     });
 
     return () => {
@@ -170,17 +192,23 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     };
   }, []);
 
-  // FitBounds на вы + цель когда узнали GPS.
+  // FitBounds на вы + цель (+ пройденный трек при продолжении) когда узнали GPS.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !me) return;
-    const sw: [number, number] = [Math.min(me.lng, target.lng), Math.min(me.lat, target.lat)];
-    const ne: [number, number] = [Math.max(me.lng, target.lng), Math.max(me.lat, target.lat)];
+    const lngs = [me.lng, target.lng];
+    const lats = [me.lat, target.lat];
+    const ct = continuationTrail;
+    if (ct && ct.length > 1) {
+      for (const p of ct) { lngs.push(p.lng); lats.push(p.lat); }
+    }
+    const sw: [number, number] = [Math.min(...lngs), Math.min(...lats)];
+    const ne: [number, number] = [Math.max(...lngs), Math.max(...lats)];
     map.fitBounds([sw, ne], { padding: 60, animate: false, maxZoom: 16 });
     // Сразу обновим box.
     const b = map.getBounds();
     setCurrentBox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
-  }, [me, target]);
+  }, [me, target, continuationTrail]);
 
   // Маркер «вы» — ромб-стрелка на цель. Компенсируем mapBearing реактивно.
   useEffect(() => {
@@ -652,6 +680,30 @@ function addVectorSource(map: MlMap): void {
         'line-opacity': 0.85,
         'line-dasharray': [3, 2],
       },
+    });
+  }
+}
+
+// Уже пройденный трек (продолжение) — зелёный пунктир, как на PickScreen.
+function addContTrailSource(map: MlMap): void {
+  if (!map.getSource('cont-trail')) {
+    map.addSource('cont-trail', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+    });
+  }
+  if (!map.getLayer('cont-trail-line')) {
+    map.addLayer({
+      id: 'cont-trail-line',
+      type: 'line',
+      source: 'cont-trail',
+      paint: {
+        'line-color': C.ok,
+        'line-width': 3,
+        'line-opacity': 0.7,
+        'line-dasharray': [2, 3],
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
     });
   }
 }

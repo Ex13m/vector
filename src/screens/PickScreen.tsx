@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import maplibregl, { Map as MlMap, Marker } from 'maplibre-gl';
+import { Capacitor } from '@capacitor/core';
 import { resumeWakeAudio } from '../lib/wakeAudio';
 import { styleFor, type Layer } from '../lib/mapStyles';
 import { searchPlace, reverseGeocode, type GeoResult } from '../lib/geocoder';
@@ -1196,13 +1197,36 @@ function SavedSheet({
 }: SheetProps) {
   const [tab, setTab] = useState<'targets' | 'trips'>(initialTab);
 
-  function downloadGpx(trip: Trip) {
+  async function downloadGpx(trip: Trip) {
     const xml = tripToGpx(trip);
+    const filename = `${trip.name.replace(/[^a-z0-9-_ ]/gi, '_')}.gpx`;
+    if (Capacitor.isNativePlatform()) {
+      // APK: Android WebView игнорирует <a download> для blob: → пишем файл
+      // через Filesystem и открываем системный share-лист (сохранить/отправить).
+      try {
+        const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
+          import('@capacitor/filesystem'),
+          import('@capacitor/share'),
+        ]);
+        const res = await Filesystem.writeFile({
+          path: filename,
+          data: xml,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+        await Share.share({ title: trip.name, url: res.uri, dialogTitle: 'GPX-трек' });
+      } catch (e) {
+        // пользователь отменил share или ошибка ФС — не критично
+        console.warn('[gpx] native export failed:', e);
+      }
+      return;
+    }
+    // Web (PWA / браузер): обычная anchor-загрузка.
     const blob = new Blob([xml], { type: 'application/gpx+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${trip.name.replace(/[^a-z0-9-_ ]/gi, '_')}.gpx`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1468,7 +1492,7 @@ function SavedSheet({
                       ▶ Продолжить
                     </button>
                     <button
-                      onClick={() => downloadGpx(t)}
+                      onClick={() => void downloadGpx(t)}
                       style={{
                         flex: 1,
                         height: 44,
