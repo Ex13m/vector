@@ -1267,9 +1267,11 @@ export default function RideScreen({
   // ── Доп-озвучка цели после поворота (Settings → «Voice on turn ≥»).
   // Сигнал — courseHeading (направление движения по треку, без джиттера).
   // Когда курс отклонился от опорного на >= порога (только в RIDING) — через
-  // ~2с (поворот «устаканился»; повторное превышение перезапускает таймер)
-  // говорим фразу цели в обход min-gap (priority). Опора сбрасывается на
-  // текущий курс при срабатывании → без спама.
+  // ~4с (повторное превышение перезапускает таймер) говорим фразу цели в обход
+  // min-gap (priority). 4с, а не 2: сам поворот длится 2–3с + ~1с пока курс/
+  // маркер устаканятся на реальном направлении — иначе озвучили бы недовёрнутое.
+  // (После короткого стопа отдельно есть RESUME-фраза +1.5с со старым курсом.)
+  // Опора сбрасывается на текущий курс при срабатывании → без спама.
   const turnAngleRef = useRef(settings.turnAngleDeg);
   turnAngleRef.current = settings.turnAngleDeg;
   const turnRefHeadingRef = useRef<number | null>(null);
@@ -1294,7 +1296,7 @@ export default function RideScreen({
           lastVoiceRef.current = Date.now();
           speakRef.current(true); // priority — в обход min-gap
         }
-      }, 2000);
+      }, 4000);
     }
   }, [courseHeading, ridePhase]);
   // Таймер поворота чистим ТОЛЬКО на размонтировании: эффект выше
