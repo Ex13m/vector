@@ -1,0 +1,54 @@
+// Лёгкий кольцевой лог для полевой диагностики (GPS ↔ голос).
+// Цель: на велике/в машине прокатиться, потом выгрузить .txt и увидеть
+// таймлайн — замолкает ли голос из-за пропажи GPS-фиксов или из-за того,
+// что триггер не сработал / схлопнулся min-gap'ом.
+//
+// Всегда включён (стоимость ничтожна: push в массив). Это временная
+// debug-фича — убрать перед релизом «на продажу».
+
+type DiagEntry = { t: number; tag: string; msg: string };
+
+const RING_MAX = 8000; // ~1–2 часа при ~1–2 записях/сек
+let ring: DiagEntry[] = [];
+let t0 = 0;
+let enabled = true;
+
+export function setDiagEnabled(on: boolean): void {
+  enabled = on;
+}
+
+export function dlog(tag: string, msg = ''): void {
+  if (!enabled) return;
+  const t = Date.now();
+  if (t0 === 0) t0 = t;
+  ring.push({ t, tag, msg });
+  // Амортизированная обрезка (не shift на каждый push).
+  if (ring.length > RING_MAX) ring.splice(0, Math.floor(RING_MAX / 4));
+}
+
+export function diagCount(): number {
+  return ring.length;
+}
+
+export function clearDiag(): void {
+  ring = [];
+  t0 = 0;
+}
+
+/** Текстовый дамп: [+отн.сек  стенные часы] TAG  detail. */
+export function getDiagText(): string {
+  const header =
+    `Vector diagnostics\n` +
+    `entries: ${ring.length}\n` +
+    `start: ${t0 ? new Date(t0).toISOString() : '-'}\n` +
+    `dumped: ${new Date().toISOString()}\n` +
+    `\n` +
+    `[+rel  wall] TAG  detail\n` +
+    `------------------------------------------------\n`;
+  const lines = ring.map((e) => {
+    const rel = ((e.t - t0) / 1000).toFixed(1).padStart(8);
+    const wall = new Date(e.t).toLocaleTimeString('ru-RU', { hour12: false });
+    return `[${rel}s ${wall}] ${e.tag}\t${e.msg}`;
+  });
+  return header + lines.join('\n') + '\n';
+}

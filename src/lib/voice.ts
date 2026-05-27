@@ -10,6 +10,7 @@
 // Выбор движка происходит автоматически через Capacitor.isNativePlatform().
 
 import { Capacitor } from '@capacitor/core';
+import { dlog } from './diag';
 
 export type VoiceLang = 'ru' | 'en' | 'de';
 
@@ -66,6 +67,7 @@ function showTtsDiag(msg: string) {
 
 /** Native TTS путь (Capacitor Android) */
 async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
+  const started = Date.now();
   try {
     const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
     // stop() ТОЛЬКО для приоритетных фраз. Для рутинной каденции не прерываем —
@@ -79,10 +81,12 @@ async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
       volume: 1.0,
       // category убран: 'ambient' на части устройств глушит TTS (mute switch / stream).
     });
+    dlog('TTS', `ok ${Date.now() - started}ms`);
     lastTtsError = null;
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     console.warn('[voice] native TTS failed:', e);
+    dlog('TTS', `ERR ${msg}`);
     showTtsDiag(msg);
   }
 }
@@ -108,8 +112,12 @@ export function speak(
 ) {
   const priority = opts?.priority ?? false;
   const now = Date.now();
-  if (!priority && now - _lastSpeakAt < MIN_GAP_MS) return;
+  if (!priority && now - _lastSpeakAt < MIN_GAP_MS) {
+    dlog('SKIP', `gap ${Math.round(now - _lastSpeakAt)}ms "${text.slice(0, 20)}"`);
+    return;
+  }
   _lastSpeakAt = now;
+  dlog('SAY', `${priority ? '! ' : ''}"${text.slice(0, 28)}"`);
   if (isNative) {
     void speakNative(text, lang, priority);
   } else {

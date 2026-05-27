@@ -35,6 +35,7 @@ import {
   forceLongStop,
 } from '../lib/rideStateMachine';
 import { speak, buildPhrase, stopSpeaking } from '../lib/voice';
+import { dlog } from '../lib/diag';
 import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
@@ -299,7 +300,9 @@ export default function RideScreen({
         const accuracy = pos.coords.accuracy ?? 999;
         const ph = machineRef.current.phase;
         const poorFix = (ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30;
+        const _dt = prevGpsAt > 0 ? ((now - prevGpsAt) / 1000).toFixed(1) : '?';
         if (poorFix) {
+          dlog('GPS', `poor drop acc=${Math.round(accuracy)} ph=${ph} dt=${_dt}s`);
           // Грубый фикс: НЕ кормим state machine / трек (иначе маркер прыгает
           // и ложно «уезжаем»). НО первый фикс всё равно показываем — чтобы
           // карта центрировалась и маркер «вы» появился сразу (а не висел на
@@ -317,6 +320,7 @@ export default function RideScreen({
         setLastKnownPos(p);
         const rawSpeed = pos.coords.speed ?? 0;
         if (rawSpeed > speedMaxRef.current) speedMaxRef.current = rawSpeed;
+        dlog('GPS', `dt=${_dt}s acc=${Math.round(accuracy)} spd=${rawSpeed.toFixed(1)} ph=${ph}`);
 
         // ── Gap detection: экран был выключен → сброс таймеров state machine
         const gapMs = prevGpsAt > 0 ? now - prevGpsAt : 0;
@@ -345,6 +349,7 @@ export default function RideScreen({
         });
         machineRef.current = nextState;
         if (nextState.phase !== machine.phase) {
+          dlog('PHASE', `${machine.phase} -> ${nextState.phase}`);
           setRidePhase(nextState.phase);
         }
         if (signal) transitionHandlerRef.current(signal);
@@ -361,6 +366,7 @@ export default function RideScreen({
         if (!silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
           const sinceVoice = Date.now() - lastVoiceRef.current;
           if (sinceVoice >= intervalSecRef.current * 1000) {
+            dlog('VOICE', `gps-dup sinceVoice=${(sinceVoice / 1000).toFixed(0)}s`);
             lastVoiceRef.current = Date.now();
             speakRef.current();
           }
@@ -1231,10 +1237,12 @@ export default function RideScreen({
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix) return;
     if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastVoiceRef.current === 0) {
+      dlog('VOICE', 'interval-first');
       lastVoiceRef.current = Date.now();
       speakRef.current();
     }
     const id = window.setInterval(() => {
+      dlog('VOICE', 'interval');
       lastVoiceRef.current = Date.now();
       speakRef.current();
     }, settings.intervalSec * 1000);
@@ -1293,6 +1301,7 @@ export default function RideScreen({
       if (turnTimerRef.current) window.clearTimeout(turnTimerRef.current);
       turnTimerRef.current = window.setTimeout(() => {
         if (!silencedRef.current && !arrivedRef.current && ridePhaseRef.current === 'RIDING') {
+          dlog('VOICE', `turn d=${Math.round(d)}`);
           lastVoiceRef.current = Date.now();
           speakRef.current(true); // priority — в обход min-gap
         }

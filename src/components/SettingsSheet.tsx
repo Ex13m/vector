@@ -3,6 +3,8 @@ import { C, F_DISP, F_MONO } from '../theme';
 import type { Settings } from '../App';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP } from '../lib/constants';
 import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
+import { getDiagText, clearDiag, diagCount } from '../lib/diag';
+import { exportTextFile } from '../lib/exportFile';
 
 type Props = {
   settings: Settings;
@@ -184,6 +186,43 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             </select>
           </Section>
         )}
+
+        {/* Diagnostics — временный debug-лог GPS↔голос для полевого теста */}
+        <Section>
+          <Label>Diagnostics (GPS / voice)</Label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              onClick={() => void exportTextFile(`vector-diag-${Date.now()}.txt`, getDiagText())}
+              style={{
+                flex: 1,
+                background: C.bg2,
+                color: C.target,
+                border: `1px solid ${C.line2}`,
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontFamily: F_MONO,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              Export log ({diagCount()})
+            </button>
+            <button
+              onClick={() => clearDiag()}
+              style={{
+                background: C.bg2,
+                color: C.inkDim,
+                border: `1px solid ${C.line2}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontFamily: F_MONO,
+                fontSize: 12,
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </Section>
 
         {/* Версия — чтобы сверять, какой билд сейчас загружен */}
         <div
