@@ -956,7 +956,14 @@ export default function RideScreen({
     let curLng = map.getCenter().lng;
     let curLat = map.getCenter().lat;
     let curBearing = map.getBearing();
-    const POS_K = 0.12;
+    // Сглаженная позиция маркера: лерпит к предсказанию каждый кадр. Лаг гасит
+    // и снап при коррекции фикса, и overshoot прямолинейной экстраполяции на
+    // поворотах/коротких отрезках (маркер «срезает угол», а не промахивается).
+    const initPos = camTargetPosRef.current;
+    let mkLng = initPos ? initPos.lng : curLng;
+    let mkLat = initPos ? initPos.lat : curLat;
+    const POS_K = 0.12;   // лерп камеры
+    const MK_K = 0.22;    // лерп маркера (чуть отзывчивее камеры)
     const tick = () => {
       raf = requestAnimationFrame(tick);
       if (document.hidden || arrivedRef.current) return; // экран погашен или прибыли — не тратим CPU
@@ -981,6 +988,17 @@ export default function RideScreen({
         predLng += (dist * Math.sin(brgRad)) / (111320 * Math.cos((tPos.lat * Math.PI) / 180));
       }
 
+      // ── Маркер: плавный лерп к предсказанию (каждый кадр, до камеры —
+      // обновляется даже когда камера уже на месте, иначе при settled-камере
+      // маркер замирал бы). Порог гасит idle-нагрузку когда всё сошлось.
+      const mkDLng = predLng - mkLng;
+      const mkDLat = predLat - mkLat;
+      if (Math.abs(mkDLng) > 1e-8 || Math.abs(mkDLat) > 1e-8) {
+        mkLng += mkDLng * MK_K;
+        mkLat += mkDLat * MK_K;
+        meMarkerRef.current?.setLngLat([mkLng, mkLat]);
+      }
+
       const dLng = predLng - curLng;
       const dLat = predLat - curLat;
       // shortest-path delta bearing в [-180, 180]
@@ -990,8 +1008,6 @@ export default function RideScreen({
       curLat += dLat * POS_K;
       curBearing = (curBearing + dB * bearingKRef.current + 360) % 360;
       map.jumpTo({ center: [curLng, curLat], bearing: curBearing });
-      // Маркер — на предсказанной позиции (плавное движение между GPS-фиксами).
-      meMarkerRef.current?.setLngLat([predLng, predLat]);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
