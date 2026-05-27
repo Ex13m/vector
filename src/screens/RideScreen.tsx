@@ -143,7 +143,6 @@ export default function RideScreen({
   // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
   // Нужен чтобы useEffect([me, target]) принудительно перезапустился после remount.
   const [mapKey, setMapKey] = useState(0);
-  const [pendingWakeSpeak, setPendingWakeSpeak] = useState(false);
   const [layerOpen, setLayerOpen] = useState(false);
   // compassFired: true с первого события компаса.
   // Пока false — стрелка показывает абсолютный bearing к цели (видна сразу),
@@ -1231,7 +1230,7 @@ export default function RideScreen({
   useEffect(() => {
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix) return;
     if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
-    if (lastVoiceRef.current === 0 && !pendingWakeSpeak) {
+    if (lastVoiceRef.current === 0) {
       lastVoiceRef.current = Date.now();
       speakRef.current();
     }
@@ -1240,7 +1239,7 @@ export default function RideScreen({
       speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, arrived, settings.intervalSec, hasFix, pendingWakeSpeak, ridePhase]);
+  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase]);
 
   // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
   // Скрыт в PRE_RIDE / LONG_STOP — голос там молчит.
@@ -1326,31 +1325,19 @@ export default function RideScreen({
     }
   }, [rel, ridePhase, me, silenced, compassFired, settings.lang, settings.voiceURI]);
 
-  // ── visibilitychange: при пробуждении — отменить накопившуюся речь и
-  // дождаться свежего GPS перед следующей фразой.
+  // ── visibilitychange: при пробуждении только поддерживаем фоновое аудио.
+  // НЕ произносим фразу на пробуждение экрана — это паразитный спам: телефон
+  // часто будит экран (локскрин/уведомления) без намерения пользователя, а на
+  // каждое такое пробуждение раньше озвучивалась навигация. Штатная каденция
+  // (GPS-колбэк) озвучит когда придёт время, экран включён он или нет.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState !== 'visible') return;
-      try {
-        stopSpeaking(); // платформо-зависимо: натив TTS / web
-      } catch {
-        // ignore
-      }
       resumeWakeAudio();
-      setPendingWakeSpeak(true);
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
-
-  // После пробуждения, как только GPS обновится — озвучить свежую фразу.
-  useEffect(() => {
-    if (!pendingWakeSpeak || !me) return;
-    setPendingWakeSpeak(false);
-    if (silenced || arrived || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
-    lastVoiceRef.current = Date.now();
-    speakRef.current();
-  }, [pendingWakeSpeak, me, silenced, arrived, ridePhase]);
 
   // ── Back-кнопка: pushState + popstate. На Arrived — выходим без вопроса.
   useEffect(() => {
