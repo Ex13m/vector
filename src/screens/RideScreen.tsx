@@ -1264,6 +1264,43 @@ export default function RideScreen({
     return () => window.clearInterval(id);
   }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase]);
 
+  // ── Доп-озвучка цели после поворота (Settings → «Voice on turn ≥»).
+  // Сигнал — courseHeading (направление движения по треку, без джиттера).
+  // Когда курс отклонился от опорного на >= порога (только в RIDING) — через
+  // ~2с (поворот «устаканился»; повторное превышение перезапускает таймер)
+  // говорим фразу цели в обход min-gap (priority). Опора сбрасывается на
+  // текущий курс при срабатывании → без спама.
+  const turnAngleRef = useRef(settings.turnAngleDeg);
+  turnAngleRef.current = settings.turnAngleDeg;
+  const turnRefHeadingRef = useRef<number | null>(null);
+  const turnTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    const thr = turnAngleRef.current;
+    if (thr <= 0 || ridePhase !== 'RIDING') {
+      turnRefHeadingRef.current = null;
+      return;
+    }
+    if (turnRefHeadingRef.current === null) {
+      turnRefHeadingRef.current = courseHeading;
+      return;
+    }
+    // shortest-path delta курса в [-180, 180]
+    const d = ((courseHeading - turnRefHeadingRef.current) % 360 + 540) % 360 - 180;
+    if (Math.abs(d) >= thr) {
+      turnRefHeadingRef.current = courseHeading; // опора → текущий курс (антиспам)
+      if (turnTimerRef.current) window.clearTimeout(turnTimerRef.current);
+      turnTimerRef.current = window.setTimeout(() => {
+        if (!silencedRef.current && !arrivedRef.current && ridePhaseRef.current === 'RIDING') {
+          lastVoiceRef.current = Date.now();
+          speakRef.current(true); // priority — в обход min-gap
+        }
+      }, 2000);
+    }
+  }, [courseHeading, ridePhase]);
+  // Таймер поворота чистим ТОЛЬКО на размонтировании: эффект выше
+  // перезапускается на каждом courseHeading, его cleanup сбрасывал бы таймер.
+  useEffect(() => () => { if (turnTimerRef.current) window.clearTimeout(turnTimerRef.current); }, []);
+
   // ── Haptics: лёгкая вибрация на смену часа — только в RIDING.
   // В PRE_RIDE / LONG_STOP пользователь крутит телефон → часы меняются
   // каждую секунду → haptic спамит мотором. Отключаем.

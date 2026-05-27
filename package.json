@@ -1,7 +1,7 @@
 {
   "name": "vector",
   "private": true,
-  "version": "0.5.63",
+  "version": "0.5.64",
   "type": "module",
   "description": "Voice-guided cycling beacon — clock-position navigation PWA.",
   "scripts": {

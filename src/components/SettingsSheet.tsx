@@ -23,6 +23,8 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
       ? 'off'
       : `${Math.round(settings.intervalSec / 60)} min`;
 
+  const turnAngleLabel = settings.turnAngleDeg === 0 ? 'off' : `${settings.turnAngleDeg}°`;
+
   return (
     <div
       onClick={onClose}
@@ -106,6 +108,30 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             <span>5</span>
             <span>10</span>
             <span>15 min</span>
+          </div>
+        </Section>
+
+        {/* Voice on turn ≥ angle */}
+        <Section>
+          <RowBetween>
+            <Label>Voice on turn ≥</Label>
+            <span style={{ fontFamily: F_MONO, fontSize: 13, color: C.target, letterSpacing: '0.04em' }}>
+              {turnAngleLabel}
+            </span>
+          </RowBetween>
+          <input
+            type="range"
+            min={0}
+            max={180}
+            step={5}
+            value={settings.turnAngleDeg}
+            onChange={(e) => onChange({ turnAngleDeg: Number(e.target.value) })}
+            style={{ width: '100%', accentColor: C.target, marginTop: 8 }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 4 }}>
+            <span>off</span>
+            <span>90°</span>
+            <span>180°</span>
           </div>
         </Section>
 

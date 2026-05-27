@@ -28,6 +28,9 @@ export type Settings = {
   voiceURI: string | null;
   layer: Layer;
   showTrail: boolean;
+  /** Порог поворота для доп-озвучки цели, градусы (0 = выкл, шаг 5).
+   *  Условие срабатывания: |изменение курса| >= порога → фраза цели через ~2с. */
+  turnAngleDeg: number;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -42,6 +45,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceURI: null,
   layer: 'sat', // дефолт — спутник (по требованию)
   showTrail: true,
+  turnAngleDeg: 0, // по умолчанию выкл
 };
 
 const SETTINGS_KEY = 'vector.settings.v3';
