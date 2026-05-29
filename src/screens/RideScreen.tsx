@@ -40,7 +40,7 @@ import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
-import { requestBatteryExempt } from '../lib/battery';
+import { isBatteryExempt, requestBatteryExempt } from '../lib/battery';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -142,6 +142,10 @@ export default function RideScreen({
   const [needPerm, setNeedPerm] = useState(false);
   const [gpsLost, setGpsLost] = useState(true);
   const [showQuitModal, setShowQuitModal] = useState(false);
+  // batteryExempt: исключено ли приложение из Doze. null = ещё не проверяли.
+  // false → показываем баннер с кнопкой (фоновый GPS может замерзать).
+  const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
+  const [batteryBannerDismissed, setBatteryBannerDismissed] = useState(false);
   // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
   // Нужен чтобы useEffect([me, target]) принудительно перезапустился после remount.
   const [mapKey, setMapKey] = useState(0);
@@ -286,14 +290,34 @@ export default function RideScreen({
     };
   }, [keepAwake]);
 
-  // ── Battery optimization exemption (один раз при входе на экран поездки).
+  // ── Battery optimization (Doze) — умный баннер вместо авто-диалога.
   // Без исключения из Doze Android замораживает весь процесс при выключенном
   // экране — foreground GPS-сервис умирает на 5+ минут (в диагностике dt=316s:
-  // голос и трек замирали, потом «догоняли» пачкой). Системный диалог
-  // показывается один раз; если уже исключено — no-op.
+  // голос и трек замирали, потом «догоняли» пачкой). Проверяем статус при входе
+  // и при возврате на экран (visibilitychange — после системного диалога). Если
+  // не исключено — рендерим баннер с кнопкой «Разрешить» (см. JSX ниже).
   useEffect(() => {
-    void requestBatteryExempt();
+    let cancelled = false;
+    const check = () => {
+      void isBatteryExempt().then((ok) => {
+        if (!cancelled) setBatteryExempt(ok);
+      });
+    };
+    check();
+    const onVis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
+
+  // Нажатие кнопки баннера: системный диалог исключения из Doze. Результат
+  // придёт асинхронно — перепроверка в onVis (выше) при возврате на экран.
+  const onRequestBattery = useCallback(() => {
+    haptic('medium', settings.haptics);
+    void requestBatteryExempt().then((ok) => setBatteryExempt(ok));
+  }, [settings.haptics]);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
@@ -1618,6 +1642,62 @@ export default function RideScreen({
           </div>
           <button
             onClick={grantHeading}
+            style={{
+              width: '100%',
+              height: 44,
+              background: C.target,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              fontFamily: F_DISP,
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            Разрешить
+          </button>
+        </div>
+      )}
+
+      {/* Battery optimization banner (Android Doze). Показывается только если
+          приложение НЕ исключено из оптимизации батареи — иначе фоновый
+          GPS-сервис замерзает при выключенном экране (в диагностике dt=316s). */}
+      {batteryExempt === false && !batteryBannerDismissed && chromeVisible && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 'calc(70px + env(safe-area-inset-top))',
+            left: 12,
+            right: 12,
+            background: 'rgba(11,13,12,0.96)',
+            border: `1px solid ${C.target}`,
+            color: C.ink,
+            padding: 14,
+            borderRadius: 12,
+            backdropFilter: 'blur(10px)',
+            boxShadow: `0 4px 18px rgba(0,0,0,0.5), 0 0 12px ${C.glow}`,
+            zIndex: 7,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600 }}>⚡ Работа в фоне</div>
+            <button
+              onClick={() => { haptic('light', settings.haptics); setBatteryBannerDismissed(true); }}
+              aria-label="скрыть"
+              style={{
+                background: 'none', border: 'none', color: C.inkDim,
+                fontSize: 20, lineHeight: 1, padding: '0 2px', cursor: 'pointer',
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.04em', marginBottom: 10 }}>
+            Чтобы голос и трек не прерывались при выключенном экране — разрешите работу без ограничений батареи.
+          </div>
+          <button
+            onClick={onRequestBattery}
             style={{
               width: '100%',
               height: 44,
