@@ -73,8 +73,12 @@ async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
     // stop() ТОЛЬКО для приоритетных фраз. Для рутинной каденции не прерываем —
     // иначе наложение двух speak() (stop одного рвёт speak другого) даёт тишину.
     if (interrupt) { try { await TextToSpeech.stop(); } catch { /* ignore */ } }
+    // BT A2DP primer: bluetooth-канал «спит» когда аудио не играет, и первые
+    // ~200мс TTS-вывода теряются (пользователь слышит обрезанное начало слова).
+    // Ведущая запятая создаёт TTS-паузу ~150–200мс, за которую BT-кодек
+    // успевает активироваться, и реальный текст начинается без обрезки.
     await TextToSpeech.speak({
-      text,
+      text: `, ${text}`,
       lang: langTag(lang),
       rate: 1.0,
       pitch: 1.0,
