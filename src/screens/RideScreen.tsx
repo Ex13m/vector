@@ -1371,8 +1371,8 @@ export default function RideScreen({
       return;
     }
     if (!me || silenced || !compassFired) return;
-    const aligned = rel < 2 || rel > 358;       // ±2° — снайперское наведение
-    const outOfZone = rel > 5 && rel < 355;     // ±5° гистерезис (2.5× зоны)
+    const aligned = rel < 5 || rel > 355;       // ±5° — комфортная зона наведения
+    const outOfZone = rel > 12 && rel < 348;    // ±12° гистерезис (2.4× зоны)
 
     if (aligned && !wasAlignedRef.current) {
       wasAlignedRef.current = true;

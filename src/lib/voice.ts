@@ -101,7 +101,7 @@ async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
 // друга → клиппинг/тишина. MIN_GAP сильно меньше минимального интервала
 // озвучки (60с), поэтому штатную каденцию не задевает.
 let _lastSpeakAt = 0;
-const MIN_GAP_MS = 3500;
+const MIN_GAP_MS = 2000;
 
 /**
  * @param opts.priority — приоритетная фраза (старт/прибытие/пауза/ручной голос):
