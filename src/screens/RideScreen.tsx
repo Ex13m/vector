@@ -152,6 +152,12 @@ export default function RideScreen({
 
   // ── Ride state machine (PRE_RIDE / RIDING / SHORT_STOP / LONG_STOP)
   const [ridePhase, setRidePhase] = useState<RidePhase>(savedSession?.ridePhase ?? 'PRE_RIDE');
+  // manualPause: ручная пауза (кнопка PAUSE) → голос молчит, экран наведения.
+  // Авто-LONG_STOP (3 мин стоянки) НЕ ставит manualPause → маяк продолжает
+  // вести голосом. Это решает «вырубается каждые 3 минуты».
+  const [manualPause, setManualPause] = useState(
+    () => savedSession?.ridePhase === 'LONG_STOP' && !!savedSession.machineState?.manualStop,
+  );
   const machineRef = useRef(savedSession?.machineState ?? createInitialState(null));
   const lastRidingBearingRef = useRef(0);
   const resumeVoiceTimerRef = useRef<number | null>(null);
@@ -352,26 +358,31 @@ export default function RideScreen({
         if (nextState.phase !== machine.phase) {
           dlog('PHASE', `${machine.phase} -> ${nextState.phase}`);
           setRidePhase(nextState.phase);
+          setManualPause(nextState.phase === 'LONG_STOP' && nextState.manualStop);
         }
         if (signal) transitionHandlerRef.current(signal);
 
-        // ── Запись трека: только RIDING и SHORT_STOP.
-        // Пауза = фаза LONG_STOP (ручная или авто) → запись/голос глушатся здесь.
-        const phase = nextState.phase;
-        if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
-
         // ── Фоновая озвучка (КРИТИЧНО для работы с выключенным экраном).
-        // Голосовой setInterval троттлится браузером когда экран погашен,
-        // но GPS-колбэк приходит из натива и продолжает работать. Поэтому
-        // дублируем триггер здесь — по времени с последней фразы.
-        if (!silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
-          const sinceVoice = Date.now() - lastVoiceRef.current;
-          if (sinceVoice >= intervalSecRef.current * 1000) {
-            dlog('VOICE', `gps-dup sinceVoice=${(sinceVoice / 1000).toFixed(0)}s`);
-            lastVoiceRef.current = Date.now();
-            speakRef.current();
+        // setInterval троттлится когда экран погашен, но GPS-колбэк из
+        // натива продолжает работать → дублируем голосовой триггер тут.
+        // Работает в RIDING, SHORT_STOP и авто-LONG_STOP (маяк не молкнет
+        // на стоянке). Молчим только в PRE_RIDE и ручной паузе (PAUSE).
+        const phase = nextState.phase;
+        const isManualPause = phase === 'LONG_STOP' && nextState.manualStop;
+        if (phase !== 'PRE_RIDE' && !isManualPause) {
+          if (!silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
+            const sinceVoice = Date.now() - lastVoiceRef.current;
+            if (sinceVoice >= intervalSecRef.current * 1000) {
+              dlog('VOICE', `gps-dup sinceVoice=${(sinceVoice / 1000).toFixed(0)}s`);
+              lastVoiceRef.current = Date.now();
+              speakRef.current();
+            }
           }
         }
+
+        // ── Запись трека: только RIDING и SHORT_STOP.
+        // В LONG_STOP (любой) и PRE_RIDE — трек не пишем.
+        if (phase === 'PRE_RIDE' || phase === 'LONG_STOP') return;
 
         // Дедупликация и accumulator ridden вне setTrail callback —
         // иначе StrictMode (двойной вызов) удвоит дельту.
@@ -1209,14 +1220,13 @@ export default function RideScreen({
           // Bearing уже заморожен через courseHeading useMemo
           break;
         case 'ENTER_LONG_STOP': {
-          // Голос и таймер уже останавливаются через ridePhase guard.
-          if (!silenced) {
-            const phrase = sig.manual
-              ? (settings.lang === 'ru' ? 'Долгая пауза' :
-                 settings.lang === 'de' ? 'Lange Pause' : 'Long pause')
-              : (settings.lang === 'ru' ? 'Остановка — двигайтесь к цели для продолжения' :
-                 settings.lang === 'de' ? 'Angehalten — fahren Sie zum Ziel um fortzufahren' :
-                 'Stopped — move towards your target to continue');
+          // Ручная пауза (PAUSE) → озвучиваем, голос далее молчит.
+          // Авто-LONG_STOP → тихий переход, маяк продолжает вести голосом,
+          // пользователь не замечает смены фазы.
+          if (!silenced && sig.manual) {
+            const phrase =
+              settings.lang === 'ru' ? 'Долгая пауза' :
+              settings.lang === 'de' ? 'Lange Pause' : 'Long pause';
             speak(phrase, settings.lang, settings.voiceURI, { priority: true });
           }
           break;
@@ -1236,7 +1246,9 @@ export default function RideScreen({
 
   useEffect(() => {
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix) return;
-    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
+    // PRE_RIDE — ещё не поехали. Ручная пауза (manualPause) — молчим.
+    // Авто-LONG_STOP (manualPause=false) — маяк продолжает вести.
+    if (ridePhase === 'PRE_RIDE' || (ridePhase === 'LONG_STOP' && manualPause)) return;
     if (lastVoiceRef.current === 0) {
       dlog('VOICE', 'interval-first');
       lastVoiceRef.current = Date.now();
@@ -1248,14 +1260,14 @@ export default function RideScreen({
       speakRef.current();
     }, settings.intervalSec * 1000);
     return () => window.clearInterval(id);
-  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase]);
+  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase, manualPause]);
 
   // ── Обратный таймер до следующего голоса (обновляется каждые 500 мс).
   // Скрыт в PRE_RIDE / LONG_STOP — голос там молчит.
   const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
   useEffect(() => {
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix
-        || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') {
+        || ridePhase === 'PRE_RIDE' || (ridePhase === 'LONG_STOP' && manualPause)) {
       setNextVoiceSec(null);
       return;
     }
@@ -1271,7 +1283,7 @@ export default function RideScreen({
     update();
     const id = window.setInterval(update, 500);
     return () => window.clearInterval(id);
-  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase]);
+  }, [silenced, arrived, settings.intervalSec, hasFix, ridePhase, manualPause]);
 
   // ── Доп-озвучка цели после поворота (Settings → «Voice on turn ≥»).
   // Сигнал — courseHeading (направление движения по треку, без джиттера).
@@ -1865,6 +1877,7 @@ export default function RideScreen({
             : forceLongStop(m, me ?? m.anchorPoint ?? { lat: 0, lng: 0 }, now);
           machineRef.current = nextState;
           setRidePhase(nextState.phase);
+          setManualPause(nextState.phase === 'LONG_STOP' && nextState.manualStop);
           if (signal) transitionHandlerRef.current(signal);
         }}
         onSay={() => {
