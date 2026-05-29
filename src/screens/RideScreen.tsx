@@ -40,6 +40,7 @@ import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
+import { requestBatteryExempt } from '../lib/battery';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
 import { C, F_DISP, F_MONO } from '../theme';
@@ -284,6 +285,15 @@ export default function RideScreen({
       lock?.release();
     };
   }, [keepAwake]);
+
+  // ── Battery optimization exemption (один раз при входе на экран поездки).
+  // Без исключения из Doze Android замораживает весь процесс при выключенном
+  // экране — foreground GPS-сервис умирает на 5+ минут (в диагностике dt=316s:
+  // голос и трек замирали, потом «догоняли» пачкой). Системный диалог
+  // показывается один раз; если уже исключено — no-op.
+  useEffect(() => {
+    void requestBatteryExempt();
+  }, []);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
