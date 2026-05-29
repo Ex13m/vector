@@ -302,16 +302,17 @@ export default function RideScreen({
         const poorFix = (ph === 'LONG_STOP' || ph === 'PRE_RIDE') && accuracy > 30;
         const _dt = prevGpsAt > 0 ? ((now - prevGpsAt) / 1000).toFixed(1) : '?';
         if (poorFix) {
-          dlog('GPS', `poor drop acc=${Math.round(accuracy)} ph=${ph} dt=${_dt}s`);
-          // Грубый фикс: НЕ кормим state machine / трек (иначе маркер прыгает
-          // и ложно «уезжаем»). НО первый фикс всё равно показываем — чтобы
-          // карта центрировалась и маркер «вы» появился сразу (а не висел на
-          // дефолте, пока ловятся спутники). Дальше грубые фиксы игнорим.
-          if (!meAvailableRef.current) {
-            const p0 = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-            setMe(p0);
-            setLastKnownPos(p0);
-          }
+          dlog('GPS', `poor keepMe acc=${Math.round(accuracy)} ph=${ph} dt=${_dt}s`);
+          // Грубый фикс в LONG_STOP/PRE_RIDE: НЕ кормим state machine / трек —
+          // джиттер дал бы ложный «уехал» → RIDING. НО позицию обновляем ВСЕГДА.
+          // Раньше грубые фиксы (после первого) полностью отбрасывались: стоя на
+          // месте телефон часто даёт accuracy 30–50м → me/часы/дистанция
+          // «замерзали», и в LONG_STOP это выглядело как «GPS выключился» —
+          // наведение на цель не работало. Теперь часы/дистанция/наведение
+          // остаются живыми (лёгкий джиттер прицела лучше мёртвого экрана).
+          const p0 = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setMe(p0);
+          setLastKnownPos(p0);
           return;
         }
 
