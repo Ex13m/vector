@@ -696,7 +696,7 @@ export default function PickScreen({
           style={{
             position: 'absolute',
             right: 14,
-            bottom: 'calc(96px + env(safe-area-inset-bottom))',
+            bottom: target ? 'calc(140px + env(safe-area-inset-bottom))' : 'calc(96px + env(safe-area-inset-bottom))',
             width: 48,
             height: 48,
             background: 'rgba(11,13,12,0.85)',
@@ -730,7 +730,7 @@ export default function PickScreen({
         style={{
           position: 'absolute',
           left: 12,
-          bottom: 'calc(96px + env(safe-area-inset-bottom))',
+          bottom: target ? 'calc(140px + env(safe-area-inset-bottom))' : 'calc(96px + env(safe-area-inset-bottom))',
           width: 38,
           height: 38,
           background: 'rgba(17,20,19,0.85)',
