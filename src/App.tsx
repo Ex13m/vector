@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-import PickScreen from './screens/PickScreen';
-import CacheScreen from './screens/CacheScreen';
-import RideScreen from './screens/RideScreen';
+// Экраны — lazy: каждый в своём чанке. На старте грузится только PickScreen,
+// код RideScreen (2.7k строк) и CacheScreen откладывается до перехода.
+const PickScreen = lazy(() => import('./screens/PickScreen'));
+const CacheScreen = lazy(() => import('./screens/CacheScreen'));
+const RideScreen = lazy(() => import('./screens/RideScreen'));
 import SettingsSheet from './components/SettingsSheet';
 import UpdateToast from './components/UpdateToast';
 import InstallPrompt from './components/InstallPrompt';
@@ -304,7 +306,11 @@ export default function App() {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {body}
+      {/* fallback — тёмный фон в цвет приложения, без белой вспышки при
+          загрузке lazy-чанка экрана. */}
+      <Suspense fallback={<div style={{ position: 'absolute', inset: 0, background: '#0a0c0b' }} />}>
+        {body}
+      </Suspense>
       {showSettings && (
         <SettingsSheet settings={settings} onChange={updateSettings} onClose={() => setShowSettings(false)} />
       )}

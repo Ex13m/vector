@@ -72,6 +72,20 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Vendor-чанки: maplibre (~1 МБ) и react стабильны между релизами.
+        // Выделение в отдельные чанки → при обновлении приложения качается
+        // только мелкий app-код, а тяжёлый maplibre берётся из кеша/precache.
+        // Раньше всё было в одном чанке 1.05 МБ — любая правка = перекачка всего.
+        manualChunks: {
+          maplibre: ['maplibre-gl'],
+          react: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
   server: { host: true, port: 5173 },
   // Юнит-тесты (Vitest). Чистые функции — окружение 'node', без DOM.
   test: {
