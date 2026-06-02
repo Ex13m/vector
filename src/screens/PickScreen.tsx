@@ -18,10 +18,12 @@ import {
   listTrips,
   deleteTrip,
   tripToGpx,
+  getTripLog,
   type SavedTarget,
   type Trip,
   type TrailPoint,
 } from '../lib/storage';
+import { exportTextFile } from '../lib/exportFile';
 import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
@@ -1233,6 +1235,17 @@ function SavedSheet({
     URL.revokeObjectURL(url);
   }
 
+  async function downloadLog(trip: Trip) {
+    const text = await getTripLog(trip.id);
+    if (!text) {
+      // Старые поездки (записаны до появления пер-поездочного лога) логов не имеют.
+      alert('Лог для этой поездки недоступен (записана до обновления).');
+      return;
+    }
+    const safe = trip.name.replace(/[^a-z0-9-_ ]/gi, '_');
+    await exportTextFile(`${safe}-log.txt`, text, 'text/plain');
+  }
+
   return (
     <div
       onClick={onClose}
@@ -1505,6 +1518,22 @@ function SavedSheet({
                       }}
                     >
                       ↑ GPX
+                    </button>
+                    <button
+                      onClick={() => void downloadLog(t)}
+                      aria-label="скачать лог поездки"
+                      style={{
+                        flex: 1,
+                        height: 44,
+                        background: 'transparent',
+                        color: C.ink,
+                        border: `1px solid ${C.line2}`,
+                        borderRadius: 10,
+                        fontFamily: F_DISP,
+                        fontSize: 13,
+                      }}
+                    >
+                      ⌕ Лог
                     </button>
                   </div>
                 </div>

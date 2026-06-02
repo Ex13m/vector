@@ -35,8 +35,8 @@ import {
   forceLongStop,
 } from '../lib/rideStateMachine';
 import { speak, buildPhrase, stopSpeaking } from '../lib/voice';
-import { dlog } from '../lib/diag';
-import { saveTrip, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
+import { dlog, getDiagTextSince } from '../lib/diag';
+import { saveTrip, saveTripLog, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
@@ -1195,6 +1195,8 @@ export default function RideScreen({
       target,
     };
     void saveTrip(trip);
+    // Снимок диагностики именно этой поездки → скачивается из журнала.
+    void saveTripLog(id, getDiagTextSince(startedAtRef.current, name));
   }, [ridden, avgMps, reverse, target]);
 
   // ── Auto-save поездки при arrived (один раз).

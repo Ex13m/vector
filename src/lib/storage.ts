@@ -28,9 +28,24 @@ export type SavedTarget = {
 
 const TRIP_PREFIX = 'trip:';
 const TARGET_PREFIX = 'target:';
+const TRIPLOG_PREFIX = 'triplog:';
 
 export async function saveTrip(trip: Trip): Promise<void> {
   await set(TRIP_PREFIX + trip.id, trip);
+}
+
+// ── Диагностический лог поездки (хранится отдельным ключом, чтобы listTrips
+// не тянул тяжёлый текст в память). Скачивается из журнала по кнопке. ──
+export async function saveTripLog(id: string, text: string): Promise<void> {
+  await set(TRIPLOG_PREFIX + id, text);
+}
+
+export async function getTripLog(id: string): Promise<string | undefined> {
+  return (await get(TRIPLOG_PREFIX + id)) as string | undefined;
+}
+
+export async function hasTripLog(id: string): Promise<boolean> {
+  return (await get(TRIPLOG_PREFIX + id)) != null;
 }
 
 export async function listTrips(): Promise<Trip[]> {
@@ -47,6 +62,7 @@ export async function listTrips(): Promise<Trip[]> {
 
 export async function deleteTrip(id: string) {
   await del(TRIP_PREFIX + id);
+  await del(TRIPLOG_PREFIX + id); // лог поездки удаляем вместе с ней
 }
 
 export async function renameTrip(id: string, name: string) {

@@ -35,6 +35,27 @@ export function clearDiag(): void {
   t0 = 0;
 }
 
+/** Срез лога с момента startMs (для пер-поездочного лога). rel — от первой
+ *  записи среза. Если поездка длиннее ring-буфера, начало могло быть обрезано. */
+export function getDiagTextSince(startMs: number, label = ''): string {
+  const slice = ring.filter((e) => e.t >= startMs);
+  const base = slice.length ? slice[0].t : startMs;
+  const header =
+    `Vector trip diagnostics${label ? ` — ${label}` : ''}\n` +
+    `entries: ${slice.length}\n` +
+    `start: ${new Date(startMs).toISOString()}\n` +
+    `dumped: ${new Date().toISOString()}\n` +
+    `\n` +
+    `[+rel  wall] TAG  detail\n` +
+    `------------------------------------------------\n`;
+  const lines = slice.map((e) => {
+    const rel = ((e.t - base) / 1000).toFixed(1).padStart(8);
+    const wall = new Date(e.t).toLocaleTimeString('ru-RU', { hour12: false });
+    return `[${rel}s ${wall}] ${e.tag}\t${e.msg}`;
+  });
+  return header + lines.join('\n') + '\n';
+}
+
 /** Текстовый дамп: [+отн.сек  стенные часы] TAG  detail. */
 export function getDiagText(): string {
   const header =
