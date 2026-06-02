@@ -38,7 +38,7 @@ import { speak, buildPhrase, stopSpeaking } from '../lib/voice';
 import { dlog, getDiagTextSince } from '../lib/diag';
 import { saveTrip, saveTripLog, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
 import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
-import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession } from '../lib/wakeAudio';
+import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession, isWakeAudioPlaying } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import { isBatteryExempt, requestBatteryExempt } from '../lib/battery';
 import { haptic, chimeOnTarget } from '../lib/feedback';
@@ -1537,7 +1537,7 @@ export default function RideScreen({
           // arr=прибыл, pause=ручная пауза, sinceV=сколько назад был голос,
           // bat=исключён ли из Doze. Большой sinceV при норм. условиях = Doze.
           const sinceV = lastVoiceRef.current ? ((Date.now() - lastVoiceRef.current) / 1000).toFixed(0) : '?';
-          dlog('MARK', `ph=${ridePhase} gpsLost=${gpsLost} sil=${silenced} int=${settings.intervalSec} arr=${arrived} pause=${manualPause} sinceV=${sinceV}s bat=${batteryExempt}`);
+          dlog('MARK', `ph=${ridePhase} gpsLost=${gpsLost} sil=${silenced} int=${settings.intervalSec} arr=${arrived} pause=${manualPause} sinceV=${sinceV}s bat=${batteryExempt} wake=${isWakeAudioPlaying()}`);
         }}
         style={{
           position: 'absolute',

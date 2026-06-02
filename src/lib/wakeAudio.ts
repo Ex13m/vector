@@ -27,15 +27,25 @@ const SILENT_MP3 =
   'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
   'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
+import { dlog } from './diag';
+
 let audioEl: HTMLAudioElement | null = null;
 let _playing = false;
+
+/** Играет ли фоновый аудио прямо сейчас (для диагностики в MARK/логе). */
+export function isWakeAudioPlaying(): boolean {
+  // Доверяем реальному состоянию элемента, а не только флагу.
+  return !!audioEl && !audioEl.paused;
+}
 
 function tryPlay(): void {
   if (!audioEl || _playing) return;
   void audioEl.play().then(() => {
     _playing = true;
-  }).catch(() => {
+    dlog('WAKE', 'play ok');
+  }).catch((e) => {
     // Жест не захвачен — попробуем снова при следующем взаимодействии
+    dlog('WAKE', `play FAIL ${e instanceof Error ? e.name : ''}`);
   });
 }
 
@@ -55,7 +65,7 @@ export function initWakeAudio(): void {
     const el = document.createElement('audio');
     el.src = SILENT_MP3;
     el.loop = true;
-    el.volume = 0.001; // почти беззвучно, но не 0
+    el.volume = 0.02; // почти беззвучно, но «реальнее» для аудио-фокуса Android
     el.setAttribute('playsinline', '');
     el.setAttribute('webkit-playsinline', '');
     el.setAttribute('x-webkit-airplay', 'deny');
@@ -63,19 +73,27 @@ export function initWakeAudio(): void {
     audioEl = el;
 
     // Авто-resume: входящий звонок или системное прерывание паузит audio.
-    // После завершения звонка пробуем возобновить с задержкой.
+    // Если аудио замолчит при выключенном экране — Android заморозит JS
+    // (GPS-колбэки буферизуются, голос пропадает, трек «дорисовывается»
+    // пачкой при включении). Поэтому возобновляем агрессивно.
     el.addEventListener('pause', () => {
       _playing = false;
-      setTimeout(() => {
-        if (audioEl && !_playing) tryPlay();
-      }, 1500);
+      dlog('WAKE', 'pause');
+      setTimeout(() => { if (audioEl && audioEl.paused) tryPlay(); }, 500);
+      setTimeout(() => { if (audioEl && audioEl.paused) tryPlay(); }, 2000);
+    });
+    el.addEventListener('play', () => { _playing = true; });
+    el.addEventListener('ended', () => {
+      // loop обычно не даёт ended, но на всякий случай перезапускаем.
+      dlog('WAKE', 'ended');
+      if (audioEl) { audioEl.currentTime = 0; tryPlay(); }
     });
 
-    // При возврате в foreground — тоже пробуем resume.
+    // И при выключении (hidden), и при включении (visible) экрана —
+    // убеждаемся, что аудио играет. Особенно важно ДО ухода в фон:
+    // запустить в фоне без жеста уже нельзя.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && audioEl && !_playing) {
-        tryPlay();
-      }
+      if (audioEl && audioEl.paused) tryPlay();
     });
 
     // Подписываемся на первый жест для автозапуска

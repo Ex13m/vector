@@ -11,6 +11,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { dlog } from './diag';
+import { resumeWakeAudio } from './wakeAudio';
 
 export type VoiceLang = 'ru' | 'en' | 'de';
 
@@ -92,6 +93,11 @@ async function speakNative(text: string, lang: VoiceLang, interrupt: boolean) {
     console.warn('[voice] native TTS failed:', e);
     dlog('TTS', `ERR ${msg}`);
     showTtsDiag(msg);
+  } finally {
+    // TTS забирает аудио-фокус и паузит keep-alive <audio>. Если при
+    // выключенном экране его не вернуть — Android заморозит JS (GPS-колбэки
+    // буферизуются, голос пропадает до включения экрана). Возобновляем сразу.
+    resumeWakeAudio();
   }
 }
 
