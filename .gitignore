@@ -22,3 +22,9 @@ dev-dist/
 
 # Локальные рабочие документы (дорожная карта и т.п.) — не в репозиторий
 *.docx
+
+# Signing keys — НИКОГДА в репозиторий (приватный ключ подписи APK)
+*.jks
+*.keystore
+keystore.properties
+*-credentials.txt
