@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.79] — 2026-05-30
+
+### Изменено
+
+- **applicationId: `app.vector.cycling` → `cz.konsalting.vektor`** — переход на reverse-domain от konsalting.cz перед регистрацией в Google Play Console (новая Android Developer Verification). Единый префикс `cz.konsalting.*` для всего портфолио. Полное переименование: `namespace` + `applicationId` в build.gradle, `appId` в capacitor.config, Java-пакет `app/vector/cycling/` → `cz/konsalting/vektor/`, `strings.xml` (package_name, custom_url_scheme), сгенерированный capacitor.config.json. **Важно:** новый applicationId = новое приложение для Android — APK установится рядом со старым (старый удалить вручную), данные старой сборки (поездки, цели, настройки) не переносятся.
+
 ## [0.5.78] — 2026-05-30
 
 ### Исправлено

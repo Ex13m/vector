@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "app.vector.cycling"
+    namespace = "cz.konsalting.vektor"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.vector.cycling"
+        applicationId "cz.konsalting.vektor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

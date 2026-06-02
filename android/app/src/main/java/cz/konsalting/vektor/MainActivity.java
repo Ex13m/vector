@@ -1,4 +1,4 @@
-package app.vector.cycling;
+package cz.konsalting.vektor;
 
 import android.os.Bundle;
 

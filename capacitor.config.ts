@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'app.vector.cycling',
+  appId: 'cz.konsalting.vektor',
   appName: 'Vector',
   webDir: 'dist',
   // Bundled mode: web assets inside APK, no server needed.

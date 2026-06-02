@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Vector</string>
     <string name="title_activity_main">Vector</string>
-    <string name="package_name">app.vector.cycling</string>
-    <string name="custom_url_scheme">app.vector.cycling</string>
+    <string name="package_name">cz.konsalting.vektor</string>
+    <string name="custom_url_scheme">cz.konsalting.vektor</string>
 </resources>
