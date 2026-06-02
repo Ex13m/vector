@@ -353,6 +353,20 @@ export default function RideScreen({
           const p0 = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setMe(p0);
           setLastKnownPos(p0);
+          // Голос продолжает даже при грубом фиксе в авто-LONG_STOP: маяк не
+          // должен молкнуть на стоянке только потому, что GPS прыгает (acc>30
+          // частое в покое). Раньше этот return обходил GPS-dup voice ниже →
+          // в авто-паузе голос пропадал при плохой точности. PRE_RIDE и ручная
+          // пауза по-прежнему молчат (условие ph===LONG_STOP && !manualStop).
+          if (ph === 'LONG_STOP' && !machineRef.current.manualStop
+              && !silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
+            const sinceVoice = Date.now() - lastVoiceRef.current;
+            if (sinceVoice >= intervalSecRef.current * 1000) {
+              dlog('VOICE', `gps-dup-poor sinceVoice=${(sinceVoice / 1000).toFixed(0)}s`);
+              lastVoiceRef.current = Date.now();
+              speakRef.current();
+            }
+          }
           return;
         }
 
@@ -1516,7 +1530,12 @@ export default function RideScreen({
         onClick={(e) => {
           e.stopPropagation();
           haptic('medium', settings.haptics);
-          dlog('MARK', `user ph=${ridePhase} gpsLost=${gpsLost}`);
+          // Полный снимок голосового тракта — чтобы по тапу в момент тишины
+          // увидеть ПОЧЕМУ молчит: sil=mute, int=0 (голос выкл в настройках),
+          // arr=прибыл, pause=ручная пауза, sinceV=сколько назад был голос,
+          // bat=исключён ли из Doze. Большой sinceV при норм. условиях = Doze.
+          const sinceV = lastVoiceRef.current ? ((Date.now() - lastVoiceRef.current) / 1000).toFixed(0) : '?';
+          dlog('MARK', `ph=${ridePhase} gpsLost=${gpsLost} sil=${silenced} int=${settings.intervalSec} arr=${arrived} pause=${manualPause} sinceV=${sinceV}s bat=${batteryExempt}`);
         }}
         style={{
           position: 'absolute',
