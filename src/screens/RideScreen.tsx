@@ -1706,7 +1706,9 @@ export default function RideScreen({
             borderRadius: 12,
             backdropFilter: 'blur(10px)',
             boxShadow: `0 4px 18px rgba(0,0,0,0.5), 0 0 12px ${C.glow}`,
-            zIndex: 7,
+            // Выше оверлея блокировки (8) и замка (9) — баннер энергосбережения
+            // доступен даже при заблокированном экране (кнопка «Разрешить» важна).
+            zIndex: 10,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
