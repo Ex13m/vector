@@ -29,17 +29,53 @@ let _playing = false;
 
 /** Играет ли фоновый аудио прямо сейчас (для диагностики в MARK/логе). */
 export function isWakeAudioPlaying(): boolean {
-  // Доверяем реальному состоянию элемента, а не только флагу.
-  return !!audioEl && !audioEl.paused;
+  if (audioEl && !audioEl.paused) return true;
+  // Fallback: Web Audio тон активен.
+  return !!audioCtx && audioCtx.state === 'running' && webAudioStarted;
+}
+
+// ── Web Audio fallback ───────────────────────────────────────────────────
+// Если <audio> с data-URI не играет (наблюдалось NotSupportedError в Android
+// WebView — ни MP3, ни WAV data-URI не заводились), генерируем тон программно
+// через Web Audio. Ему не нужен ни файл, ни декодер → NotSupportedError там
+// невозможен. Тон почти неслышный (40 Гц, gain 0.0015), но держит аудио-фокус
+// и не даёт системе заморозить JS при выключенном экране.
+let audioCtx: AudioContext | null = null;
+let webAudioStarted = false;
+
+function startWebAudio(): void {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) { dlog('WAKE', 'no WebAudio'); return; }
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') void audioCtx.resume();
+    if (!webAudioStarted) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.0015;
+      osc.frequency.value = 40;
+      osc.type = 'sine';
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      webAudioStarted = true;
+    }
+    dlog('WAKE', `webaudio ${audioCtx.state}`);
+  } catch (e) {
+    dlog('WAKE', `webaudio FAIL ${e instanceof Error ? e.name : ''}`);
+  }
 }
 
 function tryPlay(): void {
+  // Web Audio параллельно <audio>: даже если элемент заведётся, тон-fallback
+  // не мешает (почти неслышный), а если <audio> не пойдёт — fallback держит JS.
+  startWebAudio();
   if (!audioEl || _playing) return;
   void audioEl.play().then(() => {
     _playing = true;
     dlog('WAKE', 'play ok');
   }).catch((e) => {
-    // Жест не захвачен — попробуем снова при следующем взаимодействии
+    // <audio> не пошёл (формат/жест) — JS держит Web Audio fallback выше.
     dlog('WAKE', `play FAIL ${e instanceof Error ? e.name : ''}`);
   });
 }
@@ -85,10 +121,10 @@ export function initWakeAudio(): void {
     });
 
     // И при выключении (hidden), и при включении (visible) экрана —
-    // убеждаемся, что аудио играет. Особенно важно ДО ухода в фон:
-    // запустить в фоне без жеста уже нельзя.
+    // убеждаемся, что аудио играет (tryPlay идемпотентен + resume Web Audio).
+    // Особенно важно ДО ухода в фон: запустить в фоне без жеста уже нельзя.
     document.addEventListener('visibilitychange', () => {
-      if (audioEl && audioEl.paused) tryPlay();
+      tryPlay();
     });
 
     // Подписываемся на первый жест для автозапуска
