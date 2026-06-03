@@ -47,7 +47,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceURI: null,
   layer: 'sat', // дефолт — спутник (по требованию)
   showTrail: true,
-  turnAngleDeg: 0, // по умолчанию выкл
+  turnAngleDeg: 65, // доп-озвучка цели при повороте курса ≥ 65°
 };
 
 const SETTINGS_KEY = 'vector.settings.v3';

@@ -4,4 +4,4 @@
 
 export const VOICE_INTERVAL_MAX = 900; // 15 минут
 export const VOICE_INTERVAL_STEP = 60; // 1 минута
-export const DEFAULT_VOICE_INTERVAL = 900;
+export const DEFAULT_VOICE_INTERVAL = 60; // раз в минуту
