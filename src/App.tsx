@@ -15,6 +15,7 @@ import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
+import { dlog } from './lib/diag';
 import type { TrailPoint } from './lib/storage';
 import { startHeading } from './lib/orientation';
 
@@ -80,7 +81,12 @@ type Screen = 'pick' | 'cache' | 'ride';
 
 export default function App() {
   // Создаём <audio> сразу при старте — play() будет вызван из жеста «Старт».
-  useEffect(() => { initWakeAudio(); }, []);
+  // dlog mount: ловим перезапуск JS (если APP-mount в логе дважды) и язык —
+  // диагностика бага «язык сам переключается ru→en посреди поездки».
+  useEffect(() => {
+    initWakeAudio();
+    dlog('APP', `mount lang=${loadSettings().lang} nav=${navigator.language}`);
+  }, []);
 
   // ── Восстановление активной поездки после убийства вкладки ОС.
   const savedSession = useMemo(() => loadRideSession(), []);
@@ -107,6 +113,8 @@ export default function App() {
   const [contTripName, setContTripName] = useState<string | null>(null);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
+    // Диагностика: ловим, кто и когда меняет язык (баг ru→en посреди поездки).
+    if ('lang' in patch) dlog('APP', `updateSettings lang=${patch.lang}`);
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       saveSettings(next);

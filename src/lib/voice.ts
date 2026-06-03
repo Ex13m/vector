@@ -127,7 +127,7 @@ export function speak(
     return;
   }
   _lastSpeakAt = now;
-  dlog('SAY', `${priority ? '! ' : ''}"${text.slice(0, 28)}"`);
+  dlog('SAY', `${priority ? '! ' : ''}[${lang}] "${text.slice(0, 24)}"`);
   if (isNative) {
     void speakNative(text, lang, priority);
   } else {
