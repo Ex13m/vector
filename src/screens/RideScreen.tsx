@@ -120,17 +120,9 @@ export default function RideScreen({
   // autoFollow=true: карта следует за GPS + bearing вращается по courseHeading.
   // Отключается при ручных жестах (pan/rotate), включается кнопкой центровки.
   const [autoFollow, setAutoFollow] = useState(true);
-  // lockView=true: ручные жесты карты (pan/rotate) всегда заблокированы, только
-  // zoom — карта держит наведение на цель. (Полная блокировка экрана — отдельно,
-  // см. screenLocked ниже.) Сеттер не нужен: фиксация карты постоянна.
-  const [lockView] = useState(true);
-  // screenLocked: ПОЛНАЯ блокировка экрана («карман-режим»). Поверх всего UI —
-  // оверлей, перехватывающий ВСЕ касания: кнопки, зум, жесты карты недоступны.
-  // Работает только наведение карты на цель (course-up программно). Разблокировка
-  // — удержанием ~1.2с (защита от случайного срабатывания в кармане).
-  const [screenLocked, setScreenLocked] = useState(false);
-  const [unlockHolding, setUnlockHolding] = useState(false);
-  const unlockTimerRef = useRef<number | null>(null);
+  // lockView=true: ручные жесты (pan/rotate) ЗАБЛОКИРОВАНЫ, только zoom.
+  // По умолчанию включён — телефон в кармане не сбросит карту случайным касанием.
+  const [lockView, setLockView] = useState(true);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
   const [silenced, setSilenced] = useState(false);
   // Рефы для фоновой озвучки из GPS-колбэка (setInterval троттлится при
@@ -326,27 +318,6 @@ export default function RideScreen({
     haptic('medium', settings.haptics);
     void requestBatteryExempt().then((ok) => setBatteryExempt(ok));
   }, [settings.haptics]);
-
-  // ── Разблокировка экрана удержанием (~1.2с). Защита от случайного касания
-  // в кармане: короткий тап не разблокирует, нужно держать палец.
-  const UNLOCK_HOLD_MS = 1200;
-  const startUnlock = useCallback(() => {
-    setUnlockHolding(true);
-    if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
-    unlockTimerRef.current = window.setTimeout(() => {
-      haptic('success', settings.haptics);
-      setScreenLocked(false);
-      setUnlockHolding(false);
-      unlockTimerRef.current = null;
-    }, UNLOCK_HOLD_MS);
-  }, [settings.haptics]);
-  const cancelUnlock = useCallback(() => {
-    if (unlockTimerRef.current) { window.clearTimeout(unlockTimerRef.current); unlockTimerRef.current = null; }
-    setUnlockHolding(false);
-  }, []);
-  // Прибытие к цели снимает блокировку — иначе модалка финиша окажется под
-  // оверлеем и пользователь не сможет её нажать.
-  useEffect(() => { if (arrived) setScreenLocked(false); }, [arrived]);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
   // Трек пишется только в RIDING / SHORT_STOP. Pause — отдельный оверрайд.
@@ -1133,29 +1104,6 @@ export default function RideScreen({
     };
   }, [lockView]);
 
-  // screenLocked: полная блокировка ВСЕХ жестов карты, включая зум (в отличие
-  // от lockView, где зум остаётся). Оверлей сверху и так перехватывает касания,
-  // но отключаем и на уровне MapLibre — двойная защита от случайных жестов.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !screenLocked) return;
-    map.dragPan.disable();
-    map.dragRotate.disable();
-    map.touchZoomRotate.disable();
-    map.scrollZoom.disable();
-    map.doubleClickZoom.disable();
-    map.keyboard.disable();
-    return () => {
-      map.dragPan.enable();
-      map.dragRotate.enable();
-      map.touchZoomRotate.enable();
-      map.scrollZoom.enable();
-      map.doubleClickZoom.enable();
-      map.keyboard.enable();
-      // lockView мог оставить часть выключенной — его эффект сам восстановит.
-    };
-  }, [screenLocked]);
-
   // ridden теперь incremental accumulator (см. riddenRef в GPS-callback).
   const ridden = riddenM;
 
@@ -1819,24 +1767,29 @@ export default function RideScreen({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            haptic('medium', settings.haptics);
-            // Полная блокировка экрана. Выход — удержанием на оверлее.
-            setAutoFollow(true);   // центрируемся на наведение
-            setScreenLocked(true);
+            haptic('light', settings.haptics);
+            setLockView((prev) => {
+              const next = !prev;
+              // При входе в lock — автоматически центрируемся
+              if (next) setAutoFollow(true);
+              return next;
+            });
           }}
-          aria-label="заблокировать экран"
+          aria-label="lock view"
           style={{
             position: 'absolute',
             right: 72, // 14 + 48 + 10 — слева от ⊕
             bottom: 'calc(180px + env(safe-area-inset-bottom))',
             width: 48,
             height: 48,
-            background: 'rgba(11,13,12,0.9)',
-            border: `1px solid ${C.line2}`,
-            color: C.inkDim,
+            background: lockView ? 'rgba(72,222,148,0.16)' : 'rgba(11,13,12,0.9)',
+            border: `1px solid ${lockView ? C.ok : C.line2}`,
+            color: lockView ? C.ok : C.inkDim,
             borderRadius: 999,
             backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+            boxShadow: lockView
+              ? `0 4px 14px rgba(0,0,0,0.4),0 0 10px ${C.okGlow}`
+              : '0 4px 14px rgba(0,0,0,0.4)',
             zIndex: 5,
             display: 'flex',
             alignItems: 'center',
@@ -1844,11 +1797,19 @@ export default function RideScreen({
             padding: 0,
           }}
         >
-          {/* Закрытый замок — действие «заблокировать экран» */}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="4" y="11" width="16" height="10" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-          </svg>
+          {lockView ? (
+            // Замок закрыт
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          ) : (
+            // Замок открыт
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+            </svg>
+          )}
         </button>
       )}
 
@@ -2118,89 +2079,6 @@ export default function RideScreen({
             handleQuitContinue();
           }}
         />
-      )}
-
-      {/* Полная блокировка экрана («карман-режим»). Прозрачный оверлей
-          перехватывает ВСЕ касания (кнопки, зум, жесты карты) — работает
-          только наведение карты на цель (course-up программно, под оверлеем).
-          Разблокировка — удержанием ~1.2с (короткий тап не срабатывает). */}
-      {screenLocked && (
-        <div
-          onContextMenu={(e) => e.preventDefault()}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 50,
-            background: 'rgba(10,12,11,0.18)',
-            touchAction: 'none',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          {/* Индикатор «заблокировано» сверху */}
-          <div
-            style={{
-              marginTop: 'calc(64px + env(safe-area-inset-top))',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              background: 'rgba(11,13,12,0.88)',
-              backdropFilter: 'blur(8px)',
-              border: `1px solid ${C.line2}`,
-              borderRadius: 999,
-              padding: '8px 16px',
-              fontFamily: F_MONO,
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              color: C.ink,
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-            ЭКРАН ЗАБЛОКИРОВАН
-          </div>
-
-          {/* Кнопка разблокировки — требует удержания */}
-          <button
-            onPointerDown={startUnlock}
-            onPointerUp={cancelUnlock}
-            onPointerLeave={cancelUnlock}
-            onPointerCancel={cancelUnlock}
-            style={{
-              marginBottom: 'calc(64px + env(safe-area-inset-bottom))',
-              minWidth: 240,
-              height: 58,
-              padding: '0 26px',
-              background: unlockHolding ? C.target : 'rgba(11,13,12,0.92)',
-              border: `1px solid ${unlockHolding ? C.target : C.line2}`,
-              color: unlockHolding ? '#fff' : C.ink,
-              borderRadius: 999,
-              backdropFilter: 'blur(8px)',
-              boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
-              fontFamily: F_DISP,
-              fontSize: 15,
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              touchAction: 'none',
-              transition: `background ${UNLOCK_HOLD_MS}ms linear, border-color 150ms`,
-              WebkitUserSelect: 'none',
-              userSelect: 'none',
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 7.5-2" />
-            </svg>
-            {unlockHolding ? 'Держите…' : 'Удерживайте для разблокировки'}
-          </button>
-        </div>
       )}
 
     </div>
