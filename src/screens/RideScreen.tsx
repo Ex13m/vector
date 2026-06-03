@@ -120,8 +120,10 @@ export default function RideScreen({
   // autoFollow=true: карта следует за GPS + bearing вращается по courseHeading.
   // Отключается при ручных жестах (pan/rotate), включается кнопкой центровки.
   const [autoFollow, setAutoFollow] = useState(true);
-  // lockView=true: ручные жесты (pan/rotate) ЗАБЛОКИРОВАНЫ, только zoom.
-  // По умолчанию включён — телефон в кармане не сбросит карту случайным касанием.
+  // lockView=true: ПОЛНАЯ блокировка — все кнопки UI и все жесты карты
+  // (pan/rotate/zoom) заблокированы, работает только наведение на цель со
+  // стандартным масштабом. По умолчанию включён (телефон в кармане). Разблок —
+  // тапом по кнопке-замку (она остаётся доступна поверх блокировки).
   const [lockView, setLockView] = useState(true);
   const [time, setTime] = useState(savedSession?.elapsedSec ?? contElapsedSec);
   const [silenced, setSilenced] = useState(false);
@@ -1089,18 +1091,24 @@ export default function RideScreen({
     return () => cancelAnimationFrame(raf);
   }, [autoFollow, mapKey]);
 
-  // lockView: блокируем drag/rotation жесты. Cleanup-pattern — гарантирует
-  // обратное включение, даже если что-то пойдёт не так с toggle-логикой.
+  // lockView: блокируем ВСЕ жесты карты — pan, rotate И zoom (масштаб
+  // стандартный, фиксированный). Cleanup гарантирует обратное включение.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !lockView) return;
     map.dragPan.disable();
     map.dragRotate.disable();
-    map.touchZoomRotate.disableRotation();
+    map.touchZoomRotate.disable();
+    map.scrollZoom.disable();
+    map.doubleClickZoom.disable();
+    map.keyboard.disable();
     return () => {
       map.dragPan.enable();
       map.dragRotate.enable();
-      map.touchZoomRotate.enableRotation();
+      map.touchZoomRotate.enable();
+      map.scrollZoom.enable();
+      map.doubleClickZoom.enable();
+      map.keyboard.enable();
     };
   }, [lockView]);
 
@@ -1762,6 +1770,23 @@ export default function RideScreen({
         Z{mapZoom}
       </div>
 
+      {/* Оверлей блокировки: при lockView перехватывает касания ВСЕХ кнопок и
+          жестов карты. Прозрачный — наведение под ним видно. Сам замок (zIndex 9)
+          выше оверлея, остаётся доступен для разблокировки. Скрыт при модалках
+          финиша/выхода, чтобы они были нажимаемы. */}
+      {lockView && me && !arrived && !showQuitModal && (
+        <div
+          onContextMenu={(e) => e.preventDefault()}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 8,
+            touchAction: 'none',
+            background: 'transparent',
+          }}
+        />
+      )}
+
       {/* Lock view toggle — слева от центровки */}
       {me && (
         <button
@@ -1770,8 +1795,8 @@ export default function RideScreen({
             haptic('light', settings.haptics);
             setLockView((prev) => {
               const next = !prev;
-              // При входе в lock — автоматически центрируемся
-              if (next) setAutoFollow(true);
+              // При входе в блокировку — сброс на стандартный масштаб + наведение.
+              if (next) recenter();
               return next;
             });
           }}
@@ -1790,7 +1815,8 @@ export default function RideScreen({
             boxShadow: lockView
               ? `0 4px 14px rgba(0,0,0,0.4),0 0 10px ${C.okGlow}`
               : '0 4px 14px rgba(0,0,0,0.4)',
-            zIndex: 5,
+            // Поверх оверлея блокировки (zIndex 8) — кнопка остаётся доступной.
+            zIndex: 9,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
