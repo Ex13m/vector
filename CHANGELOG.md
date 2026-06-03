@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.84] — 2026-06-03
+
+### Исправлено
+
+- **Голос тухнул в фоне: keep-alive audio вообще не запускался (NotSupportedError).** Лог реального заезда показал `WAKE play FAIL NotSupportedError` по всему треку — ни одного успешного `play ok`. Причина: silent **MP3** data-URI не декодировался в Android WebView (MP3-декодер ненадёжен для data-URI), keep-alive `<audio>` не играл → JS-движок замерзал в фоне → голос пропадал «местами» (держался только пока приходили GPS-фиксы). Заменил MP3 на **silent WAV PCM** (0.3 c, 8 kHz mono) — PCM поддерживается WebView универсально, без декодера. Теперь keep-alive должен реально играть и держать JS живым.
+
 ## [0.5.83] — 2026-06-03
 
 ### Изменено
