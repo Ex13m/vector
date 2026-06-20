@@ -774,7 +774,13 @@ export default function RideScreen({
     // originalEvent есть ТОЛЬКО при действии пользователя (touch/mouse).
     // Программный jumpTo/easeTo триггерит те же события но БЕЗ originalEvent.
     const onUserGesture = (e: { originalEvent?: unknown }) => {
-      if (e.originalEvent) setAutoFollow(false);
+      if (!e.originalEvent) return; // программный jumpTo/easeTo — не наш жест
+      // Два пальца = пинч-зум: наведение НЕ сбиваем, меняем только масштаб
+      // (камера остаётся на тебе, крутится к компасу). Из аиминга выводит
+      // только pan одним пальцем — намеренный увод карты вбок.
+      const oe = e.originalEvent as TouchEvent;
+      if (oe.touches && oe.touches.length >= 2) return;
+      setAutoFollow(false);
     };
     map.on('dragstart', onUserGesture);
     map.on('rotatestart', onUserGesture);
