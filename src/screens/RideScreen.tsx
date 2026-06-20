@@ -148,6 +148,8 @@ export default function RideScreen({
   // false → показываем баннер с кнопкой (фоновый GPS может замерзать).
   const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
   const [batteryBannerDismissed, setBatteryBannerDismissed] = useState(false);
+  // Пока открыт системный диалог Doze — прячем баннер сразу (вернётся, если отменили).
+  const [batteryRequesting, setBatteryRequesting] = useState(false);
   // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
   // Нужен чтобы useEffect([me, target]) принудительно перезапустился после remount.
   const [mapKey, setMapKey] = useState(0);
@@ -314,11 +316,18 @@ export default function RideScreen({
     };
   }, []);
 
-  // Нажатие кнопки баннера: системный диалог исключения из Doze. Результат
-  // придёт асинхронно — перепроверка в onVis (выше) при возврате на экран.
+  // Нажатие кнопки баннера: системный диалог исключения из Doze. Баннер прячем
+  // СРАЗУ (batteryRequesting) — как только открывается системный диалог. Нативный
+  // плагин резолвится ПОСЛЕ его закрытия реальным статусом (startActivityForResult):
+  // разрешение выдано → баннер остаётся скрытым; отменили → возвращается.
+  // onVis (выше) остаётся запасной перепроверкой.
   const onRequestBattery = useCallback(() => {
     haptic('medium', settings.haptics);
-    void requestBatteryExempt().then((ok) => setBatteryExempt(ok));
+    setBatteryRequesting(true);
+    void requestBatteryExempt().then((ok) => {
+      setBatteryExempt(ok);
+      setBatteryRequesting(false);
+    });
   }, [settings.haptics]);
 
   // ── GPS: одиночная подписка. State machine тикается на каждом фиксе.
@@ -1691,7 +1700,7 @@ export default function RideScreen({
       {/* Battery optimization banner (Android Doze). Показывается только если
           приложение НЕ исключено из оптимизации батареи — иначе фоновый
           GPS-сервис замерзает при выключенном экране (в диагностике dt=316s). */}
-      {batteryExempt === false && !batteryBannerDismissed && chromeVisible && (
+      {batteryExempt === false && !batteryBannerDismissed && !batteryRequesting && chromeVisible && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{

@@ -13,7 +13,10 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 interface BatteryOptimizationPlugin {
   /** Уже ли приложение исключено из оптимизации батареи. */
   isIgnoring(): Promise<{ ignoring: boolean }>;
-  /** Показать системный диалог запроса исключения (no-op если уже исключено). */
+  /**
+   * Показать системный диалог запроса исключения (no-op если уже исключено).
+   * Резолвится ПОСЛЕ закрытия диалога актуальным статусом.
+   */
   request(): Promise<{ ignoring: boolean }>;
 }
 
@@ -31,9 +34,9 @@ export async function isBatteryExempt(): Promise<boolean> {
 }
 
 /**
- * Если приложение ещё не исключено — показывает системный диалог запроса.
- * Вызывать при старте поездки. Возвращает состояние ДО диалога (результат
- * диалога асинхронный; перепроверить через isBatteryExempt() позже).
+ * Если приложение ещё не исключено — показывает системный диалог запроса и
+ * резолвится ПОСЛЕ его закрытия актуальным состоянием (натив использует
+ * startActivityForResult). Вызывать при старте поездки.
  */
 export async function requestBatteryExempt(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true;
