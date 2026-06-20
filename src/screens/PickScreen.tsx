@@ -148,6 +148,10 @@ export default function PickScreen({
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+    // Вращение карты убрано — экран всегда «север-вверх». Пинч-зум остаётся
+    // (disableRotation глушит только твист-жест, не зум).
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
 
     map.on('click', (e) => {
       haptic('light', true);

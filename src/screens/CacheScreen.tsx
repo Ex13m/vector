@@ -83,7 +83,10 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
     });
     mapRef.current = map;
 
-    // Вращение карты разрешено. Стрелка компенсирует bearing реактивно.
+    // Вращение карты убрано (жест-твист сбивал ориентацию). Карта «север-вверх»,
+    // bearing остаётся 0 → стрелка цели корректна без поворота. Пинч-зум остаётся.
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
 
     // Маркер цели — простой solid-круг (как в RideScreen). SVG-вложения с
     // inset/left/top давали sub-pixel drift конца вектора относительно центра.

@@ -62,7 +62,7 @@ npm test         # vitest run  (45 тестов: rideStateMachine, geo)
 ## Конвенции
 - **CHANGELOG.md** обновлять В ТОМ ЖЕ коммите, что и фича/фикс (не позже). Формат Keep a Changelog.
 - Версия в `package.json` — SemVer, бампать с каждым релизом APK.
-- Коммиты на английском, в конце: `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`.
+- Коммиты на английском, в конце: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - Секреты (keystore, пароли) — НИКОГДА в репозиторий (`.gitignore`: `*.jks`, `*.keystore`).
 
 ## Техдолг / планы

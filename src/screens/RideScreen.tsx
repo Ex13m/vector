@@ -650,6 +650,11 @@ export default function RideScreen({
     });
     mapRef.current = map;
     setMapKey((k) => k + 1); // сигнализируем маркер-эффекту о новой карте
+    // Ручной жест-вращение убран: в наведении/райде карта поворачивается сама
+    // (компас/курс через jumpTo), твист пальцами только сбивал. disableRotation
+    // оставляет пинч-зум; авто-поворот (программный) не затронут.
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
 
     // Маркер цели — добавляем СРАЗУ (до load), чтобы гарантированно был виден.
     // Простой solid-круг, как в ArrivedOverlay — надёжнее DOM-трюков с 1×1.
@@ -1113,8 +1118,10 @@ export default function RideScreen({
     map.keyboard.disable();
     return () => {
       map.dragPan.enable();
-      map.dragRotate.enable();
+      // Вращение НЕ возвращаем — твист-жест убран везде. touchZoomRotate
+      // включаем ради пинч-зума, но ротацию сразу глушим.
       map.touchZoomRotate.enable();
+      map.touchZoomRotate.disableRotation();
       map.scrollZoom.enable();
       map.doubleClickZoom.enable();
       map.keyboard.enable();
@@ -1432,6 +1439,7 @@ export default function RideScreen({
   // Здесь только голос, на 16 Hz React-state (speech synthesis сам имеет лаг).
   // Mute (`silenced`) отключает голос, но НЕ haptic — вибрация всегда работает.
   const wasAlignedRef = useRef(false);
+  const lastAheadAtRef = useRef(0); // свой короткий гэп для голоса «Цель впереди»
   useEffect(() => {
     if (ridePhase !== 'PRE_RIDE' && ridePhase !== 'LONG_STOP') {
       wasAlignedRef.current = false;
@@ -1444,10 +1452,17 @@ export default function RideScreen({
     if (aligned && !wasAlignedRef.current) {
       wasAlignedRef.current = true;
       // Haptic уже сработал из rawHandler на полной частоте ~60 Hz.
-      const phrase =
-        settings.lang === 'ru' ? 'Цель впереди' :
-        settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
-      speak(phrase, settings.lang, settings.voiceURI);
+      // priority: фраза-маяк должна звучать на КАЖДОМ пересечении вектора и не
+      // глотаться 2-сек паузой MIN_GAP. Свой короткий гэп 700мс гасит спам,
+      // если пересечения идут чаще (металлоискатель-бип, не очередь фраз).
+      const now = Date.now();
+      if (now - lastAheadAtRef.current >= 700) {
+        lastAheadAtRef.current = now;
+        const phrase =
+          settings.lang === 'ru' ? 'Цель впереди' :
+          settings.lang === 'de' ? 'Ziel voraus' : 'Target ahead';
+        speak(phrase, settings.lang, settings.voiceURI, { priority: true });
+      }
     } else if (outOfZone) {
       wasAlignedRef.current = false;
     }
