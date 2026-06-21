@@ -16,7 +16,7 @@ import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from 
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
 import { dlog } from './lib/diag';
-import type { TrailPoint } from './lib/storage';
+import type { TrailPoint, Trip } from './lib/storage';
 import { startHeading } from './lib/orientation';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
@@ -224,7 +224,7 @@ export default function App() {
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
-      setReverse(false);
+      setReverse(true);
       setContWaypoints(waypoints);
       setContTripId(tripId);
       setContTripName(tripName);
@@ -246,13 +246,24 @@ export default function App() {
   );
 
   const onResumeTrip = useCallback(
-    (_tripTarget: LatLng, tripTrail: Array<{ lat: number; lng: number; t: number }>) => {
-      // Reverse mode: цель — стартовая точка трека.
-      const start = tripTrail[0];
+    (trip: Trip) => {
+      // Продолжение из списка «Поездки»: цель — старт трека (возврат), и
+      // НАСЛЕДУЕМ контекст поездки (id/дистанция/время/скорость), чтобы
+      // persistTrip перезаписал ТУ ЖЕ запись (один растущий трек), а не плодил
+      // новую, и чтобы ETA был верным (avgMps = ridden/time на согласованных
+      // итогах). Trip не хранит elapsedSec — реконструируем из distM/avgSpeed.
+      const trail = trip.trail;
+      const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
       setReverse(true);
-      setResumeTrail(tripTrail);
+      setContTripId(trip.id);
+      setContTripName(trip.name);
+      setContRiddenM(trip.distM);
+      setContElapsedSec(trip.speedAvgMps > 0 ? Math.round(trip.distM / trip.speedAvgMps) : 0);
+      setContSpeedMax(trip.speedMaxMps);
+      setContWaypoints([]);
+      setResumeTrail(trail);
       setScreen('ride');
     },
     [],

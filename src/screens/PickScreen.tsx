@@ -37,7 +37,7 @@ type Props = {
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
   onConfirm: (target: LatLng, name: string | null, box: LngLatBox) => void;
-  onResumeTrip: (target: LatLng, trail: TrailPoint[]) => void;
+  onResumeTrip: (trip: Trip) => void;
   /** Открыть Saved sheet сразу на табе «Поездки» (из Журнала на Arrived). */
   openJournal?: boolean;
   onJournalConsumed?: () => void;
@@ -859,10 +859,7 @@ export default function PickScreen({
           onPickTarget={pickSavedTarget}
           onResumeTrip={(trip) => {
             setShowFavSheet(false);
-            if (trip.trail.length > 0) {
-              const start = trip.trail[0];
-              onResumeTrip({ lat: start.lat, lng: start.lng }, trip.trail);
-            }
+            if (trip.trail.length > 0) onResumeTrip(trip);
           }}
           onRemoveTarget={async (id) => {
             await deleteTarget(id);

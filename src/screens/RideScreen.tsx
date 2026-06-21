@@ -37,7 +37,7 @@ import {
 import { speak, buildPhrase, stopSpeaking } from '../lib/voice';
 import { dlog, getDiagTextSince } from '../lib/diag';
 import { saveTrip, saveTripLog, renameTrip, type Trip, type TrailPoint } from '../lib/storage';
-import { saveRideSession, clearRideSession, type RideSession } from '../lib/rideSession';
+import { saveRideSession, clearRideSession, seedRidden, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession, isWakeAudioPlaying } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import { isBatteryExempt, requestBatteryExempt } from '../lib/battery';
@@ -185,17 +185,11 @@ export default function RideScreen({
   // Один раз инициализируем из сохранённого трека (при восстановлении сессии).
   if (riddenRef.current === 0 && lastTrailPointRef.current === null) {
     const initial = savedSession?.trail ?? resumeTrail ?? [];
-    if (initial.length > 0) {
-      let total = 0;
-      for (let i = 1; i < initial.length; i++) {
-        const d = distanceM(initial[i - 1], initial[i]);
-        if (d > 1 && d < 300) total += d;
-      }
-      riddenRef.current = total;
-      lastTrailPointRef.current = initial[initial.length - 1];
-    }
-    // Continuation: добавляем дистанцию из предыдущих сегментов.
-    riddenRef.current += contRiddenM;
+    // Сеять дистанцию ОДИН раз: перенесённый итог (contRiddenM) ИЛИ сумма
+    // трека, не оба — иначе расстояние удваивается на каждом продолжении.
+    const seed = seedRidden(initial, contRiddenM);
+    riddenRef.current = seed.ridden;
+    lastTrailPointRef.current = seed.lastPoint;
   }
   const [riddenM, setRiddenM] = useState<number>(() => riddenRef.current);
   const longPressTimer = useRef<number | null>(null);
@@ -364,20 +358,8 @@ export default function RideScreen({
           const p0 = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setMe(p0);
           setLastKnownPos(p0);
-          // Голос продолжает даже при грубом фиксе в авто-LONG_STOP: маяк не
-          // должен молкнуть на стоянке только потому, что GPS прыгает (acc>30
-          // частое в покое). Раньше этот return обходил GPS-dup voice ниже →
-          // в авто-паузе голос пропадал при плохой точности. PRE_RIDE и ручная
-          // пауза по-прежнему молчат (условие ph===LONG_STOP && !manualStop).
-          if (ph === 'LONG_STOP' && !machineRef.current.manualStop
-              && !silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
-            const sinceVoice = Date.now() - lastVoiceRef.current;
-            if (sinceVoice >= intervalSecRef.current * 1000) {
-              dlog('VOICE', `gps-dup-poor sinceVoice=${(sinceVoice / 1000).toFixed(0)}s`);
-              lastVoiceRef.current = Date.now();
-              speakRef.current();
-            }
-          }
+          // В LONG_STOP штатную каденцию НЕ озвучиваем (длинная стоянка —
+          // тишина). me/часы/дистанция обновляются выше → наведение живо.
           return;
         }
 
@@ -424,11 +406,10 @@ export default function RideScreen({
         // ── Фоновая озвучка (КРИТИЧНО для работы с выключенным экраном).
         // setInterval троттлится когда экран погашен, но GPS-колбэк из
         // натива продолжает работать → дублируем голосовой триггер тут.
-        // Работает в RIDING, SHORT_STOP и авто-LONG_STOP (маяк не молкнет
-        // на стоянке). Молчим только в PRE_RIDE и ручной паузе (PAUSE).
+        // Работает в RIDING и SHORT_STOP. В LONG_STOP (длинная стоянка) и
+        // PRE_RIDE молчим; возобновление из LONG_STOP объявит сигнал перехода.
         const phase = nextState.phase;
-        const isManualPause = phase === 'LONG_STOP' && nextState.manualStop;
-        if (phase !== 'PRE_RIDE' && !isManualPause) {
+        if (phase !== 'PRE_RIDE' && phase !== 'LONG_STOP') {
           if (!silencedRef.current && !arrivedRef.current && intervalSecRef.current > 0) {
             const sinceVoice = Date.now() - lastVoiceRef.current;
             if (sinceVoice >= intervalSecRef.current * 1000) {
@@ -1326,9 +1307,10 @@ export default function RideScreen({
 
   useEffect(() => {
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix) return;
-    // PRE_RIDE — ещё не поехали. Ручная пауза (manualPause) — молчим.
-    // Авто-LONG_STOP (manualPause=false) — маяк продолжает вести.
-    if (ridePhase === 'PRE_RIDE' || (ridePhase === 'LONG_STOP' && manualPause)) return;
+    // Молчим в PRE_RIDE (ещё не поехали) и в LONG_STOP (длинная стоянка —
+    // штатную каденцию не озвучиваем). Возобновление из LONG_STOP объявит
+    // отдельный сигнал перехода.
+    if (ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') return;
     if (lastVoiceRef.current === 0) {
       dlog('VOICE', 'interval-first');
       lastVoiceRef.current = Date.now();
@@ -1347,7 +1329,7 @@ export default function RideScreen({
   const [nextVoiceSec, setNextVoiceSec] = useState<number | null>(null);
   useEffect(() => {
     if (silenced || arrived || settings.intervalSec === 0 || !hasFix
-        || ridePhase === 'PRE_RIDE' || (ridePhase === 'LONG_STOP' && manualPause)) {
+        || ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP') {
       setNextVoiceSec(null);
       return;
     }
