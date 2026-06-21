@@ -224,7 +224,7 @@ export default function App() {
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
-      setReverse(true);
+      setReverse(false);
       setContWaypoints(waypoints);
       setContTripId(tripId);
       setContTripName(tripName);
@@ -256,7 +256,7 @@ export default function App() {
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
       setTargetName('Старт');
-      setReverse(true);
+      setReverse(false);
       setContTripId(trip.id);
       setContTripName(trip.name);
       setContRiddenM(trip.distM);

@@ -9,6 +9,8 @@ export type Trip = {
   startedAt: number;
   finishedAt: number | null;
   distM: number;
+  /** Активное время поездки (сек), сумма по сегментам продолжения. Опционально — старые поездки без него. */
+  elapsedSec?: number;
   speedAvgMps: number;
   speedMaxMps: number;
   trail: TrailPoint[];

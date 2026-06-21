@@ -1548,6 +1548,9 @@ function SavedSheet({
 }
 
 function tripDurationSec(t: Trip): number {
+  // Активное время поездки (сумма по сегментам продолжения). Старые поездки
+  // без elapsedSec — падаем на wall-clock (финиш − старт).
+  if (typeof t.elapsedSec === 'number' && t.elapsedSec > 0) return t.elapsedSec;
   if (t.finishedAt && t.finishedAt > t.startedAt) return Math.floor((t.finishedAt - t.startedAt) / 1000);
   return 0;
 }

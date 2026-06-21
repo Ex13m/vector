@@ -55,17 +55,33 @@ let _permPromise: Promise<boolean> | null = null;
 function ensureLocationPermission(): Promise<boolean> {
   if (!isNative) return Promise.resolve(true);
   if (_permPromise) return _permPromise;
+  // inconclusive = диалог так и не дал решения (гонка холодного старта) либо
+  // плагин не готов. Такой результат НЕ кешируем — иначе одно неудачное «нет»
+  // на первом запуске залипает на весь процесс, и GPS мёртв до перезапуска
+  // (симптом: запрос разрешения появлялся только со второго запуска).
+  let inconclusive = false;
   _permPromise = (async () => {
     try {
       const { Geolocation } = await import('@capacitor/geolocation');
       const perm = await Geolocation.checkPermissions();
       if (perm.location === 'granted' || perm.coarseLocation === 'granted') return true;
-      const result = await Geolocation.requestPermissions({ permissions: ['location'] });
-      return result.location === 'granted' || result.coarseLocation === 'granted';
+      // Запрос с одним повтором: на свежей установке системный диалог иногда
+      // не успевает показаться (Activity ещё не готова) и возвращает 'prompt'
+      // без решения — тогда ждём и переспрашиваем, чтобы диалог точно появился.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await Geolocation.requestPermissions({ permissions: ['location'] });
+        if (r.location === 'granted' || r.coarseLocation === 'granted') return true;
+        if (r.location === 'denied') return false; // явный отказ — уважаем, не достаём
+        if (attempt === 0) await new Promise((res) => setTimeout(res, 1200));
+      }
+      inconclusive = true;
+      return false;
     } catch {
+      inconclusive = true;
       return false;
     }
   })();
+  _permPromise.then(() => { if (inconclusive) _permPromise = null; });
   return _permPromise;
 }
 

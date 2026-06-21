@@ -179,10 +179,10 @@ export function tickMachine(
 
     // ──────── LONG_STOP ────────
     case 'LONG_STOP': {
-      // Ручная пауза (кнопкой PAUSE) — держим до PLAY. Авто-возобновление по
-      // скорости/дистанции отключено: иначе пауза «на ходу» сама бы снялась.
-      if (state.manualStop) return { nextState: state, signal: null };
-      // Авто-LONG_STOP: логика как PRE_RIDE — 50м + >8 км/ч + 3 подряд
+      // Возобновление по движению работает И для авто-, И для ручной паузы:
+      // поехал — навигация сама включается (не застрянешь, забыв нажать Плей;
+      // случайная пауза на ходу авто-снимется). Кнопка Плей — отдельный быстрый
+      // путь (forceRiding). 50м + скорость + N подряд, как в PRE_RIDE.
       if (tick.distFromAnchor >= START_DIST_M && tick.speedMps >= START_SPEED_MPS) {
         const count = state.fastFixCount + 1;
         if (count >= START_CONSECUTIVE) {
@@ -193,6 +193,7 @@ export function tickMachine(
               phaseEnteredAt: tick.timestamp,
               fastFixCount: 0,
               slowSince: null,
+              manualStop: false, // движение сняло паузу (в т.ч. ручную)
             },
             signal: { type: 'START_RIDING', from: 'LONG_STOP' },
           };

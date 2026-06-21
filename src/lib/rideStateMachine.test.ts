@@ -96,14 +96,15 @@ describe('ручная пауза (forceLongStop / кнопка PAUSE)', () => {
     expect(signal).toEqual({ type: 'ENTER_LONG_STOP', manual: true });
   });
 
-  // Регрессия на баг из код-ревью v0.5.57:
-  test('РУЧНАЯ пауза НЕ авто-возобновляется даже на скорости (держится до PLAY)', () => {
+  // v0.5.91: по просьбе пользователя ручная пауза ТЕПЕРЬ тоже снимается
+  // движением (чтобы не застрять, забыв нажать PLAY; случайная пауза на ходу
+  // авто-снимется). Прежнее «держим до PLAY» (v0.5.57) намеренно снято.
+  test('РУЧНАЯ пауза авто-возобновляется при движении (как и авто-пауза)', () => {
     const riding = forceRiding(createInitialState(ORIGIN), 0).nextState;
     const paused = forceLongStop(riding, ORIGIN, 5000).nextState;
-    // едем быстро и далеко 5 фиксов — авто-резюм НЕ должен сработать
     const after = feedRiding(paused, 5, 10_000);
-    expect(after.phase).toBe('LONG_STOP');
-    expect(after.manualStop).toBe(true);
+    expect(after.phase).toBe('RIDING');
+    expect(after.manualStop).toBe(false);
   });
 
   test('PLAY (forceRiding) снимает ручную паузу', () => {

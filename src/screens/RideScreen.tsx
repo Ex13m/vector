@@ -1198,6 +1198,7 @@ export default function RideScreen({
       startedAt: startedAtRef.current,
       finishedAt: Date.now(),
       distM: Math.round(ridden),
+      elapsedSec: Math.round(time),
       speedAvgMps: avgMps,
       speedMaxMps: speedMaxRef.current,
       trail: trailRef.current,
@@ -1208,7 +1209,7 @@ export default function RideScreen({
     void saveTrip(trip);
     // Снимок диагностики именно этой поездки → скачивается из журнала.
     void saveTripLog(id, getDiagTextSince(startedAtRef.current, name));
-  }, [ridden, avgMps, reverse, target]);
+  }, [ridden, avgMps, reverse, target, time]);
 
   // ── Auto-save поездки при arrived (один раз).
   useEffect(() => {
@@ -1281,13 +1282,19 @@ export default function RideScreen({
           // Bearing уже заморожен через courseHeading useMemo
           break;
         case 'ENTER_LONG_STOP': {
-          // Ручная пауза (PAUSE) → озвучиваем, голос далее молчит.
-          // Авто-LONG_STOP → тихий переход, маяк продолжает вести голосом,
-          // пользователь не замечает смены фазы.
-          if (!silenced && sig.manual) {
-            const phrase =
-              settings.lang === 'ru' ? 'Долгая пауза' :
-              settings.lang === 'de' ? 'Lange Pause' : 'Long pause';
+          // Одноразовая фраза на входе в паузу (дальше штатная каденция молчит).
+          // Авто-пауза снимается движением; ручная — движением ИЛИ кнопкой Плей.
+          if (!silenced) {
+            const ru = sig.manual
+              ? 'Пауза. Для продолжения двигайтесь к цели или нажмите Плей'
+              : 'Включена автоматическая пауза. Для продолжения двигайтесь к цели';
+            const en = sig.manual
+              ? 'Paused. Move towards your target or press Play to continue'
+              : 'Automatic pause. Move towards your target to continue';
+            const de = sig.manual
+              ? 'Pause. Fahren Sie zum Ziel oder drücken Sie Play, um fortzusetzen'
+              : 'Automatische Pause. Fahren Sie zum Ziel, um fortzusetzen';
+            const phrase = settings.lang === 'ru' ? ru : settings.lang === 'de' ? de : en;
             speak(phrase, settings.lang, settings.voiceURI, { priority: true });
           }
           break;
