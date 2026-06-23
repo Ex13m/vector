@@ -25,6 +25,7 @@ import {
 } from '../lib/storage';
 import { exportTextFile } from '../lib/exportFile';
 import { t as tr } from '../lib/i18n';
+import WhatsNew from '../components/WhatsNew';
 import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
@@ -85,6 +86,28 @@ export default function PickScreen({
   const [suggestions, setSuggestions] = useState<GeoResult[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [showFavSheet, setShowFavSheet] = useState(false);
+
+  // ── «Что нового»: показываем ОДИН раз после ОБНОВЛЕНИЯ. На свежей установке
+  // (lastSeen пуст) — НЕ показываем и НЕ мешаем запросу разрешения GPS. На
+  // обновлении ждём первого GPS-фикса (me), чтобы не наложиться на диалог.
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const whatsNewPendingRef = useRef(false);
+  useEffect(() => {
+    const KEY = 'vector.lastSeenVersion';
+    const last = localStorage.getItem(KEY);
+    if (last == null) localStorage.setItem(KEY, __APP_VERSION__); // первая установка — молча
+    else if (last !== __APP_VERSION__) whatsNewPendingRef.current = true; // обновление
+  }, []);
+  useEffect(() => {
+    if (whatsNewPendingRef.current && me) {
+      whatsNewPendingRef.current = false;
+      setShowWhatsNew(true);
+    }
+  }, [me]);
+  const dismissWhatsNew = () => {
+    localStorage.setItem('vector.lastSeenVersion', __APP_VERSION__);
+    setShowWhatsNew(false);
+  };
   const [favSheetTab, setFavSheetTab] = useState<'targets' | 'trips'>('targets');
   const [layerOpen, setLayerOpen] = useState(false);
   const [mapZoom, setMapZoom] = useState(15);
@@ -850,6 +873,8 @@ export default function PickScreen({
       </div>
 
       {/* Favorites sheet */}
+      {showWhatsNew && <WhatsNew lang={settings.lang} onClose={dismissWhatsNew} />}
+
       {showFavSheet && (
         <SavedSheet
           saved={saved}

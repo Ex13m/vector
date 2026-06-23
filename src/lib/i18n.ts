@@ -85,6 +85,10 @@ const T: Record<string, Tr> = {
   'cache.skip':        { ru: 'Пропустить',             en: 'Skip',           de: 'Überspringen' },
   'cache.save':        { ru: 'Сохранить область',      en: 'Save area',      de: 'Bereich speichern' },
   'cache.done':        { ru: '✓ Готово',               en: '✓ Done',         de: '✓ Fertig' },
+
+  // ── Модалка «Что нового» ──────────────────────────────
+  'whatsNew.title': { ru: '✨ Что нового', en: "✨ What's new", de: '✨ Neu' },
+  'whatsNew.gotIt': { ru: 'Понятно',      en: 'Got it',       de: 'Verstanden' },
 };
 
 // Текущий язык UI. Ставится из App (setUiLang) в теле рендера — ДО рендера
