@@ -40,6 +40,7 @@ import { saveTrip, saveTripLog, renameTrip, type Trip, type TrailPoint } from '.
 import { saveRideSession, clearRideSession, seedRidden, type RideSession } from '../lib/rideSession';
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession, isWakeAudioPlaying } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
+import { t } from '../lib/i18n';
 import { isBatteryExempt, requestBatteryExempt } from '../lib/battery';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
@@ -1138,8 +1139,11 @@ export default function RideScreen({
     clearRideSession(); // поездка завершена — сессия больше не нужна
     haptic('success', settings.haptics);
     if (!silenced) {
-      // Голос «Вы у цели»
-      const phrase = settings.lang === 'ru' ? 'Вы у цели' : settings.lang === 'de' ? 'Sie sind am Ziel' : 'You have arrived';
+      // Голос-подсказка на прибытии: что делать (экономия батареи vs продолжить).
+      const phrase =
+        settings.lang === 'ru' ? 'Вы прибыли на место. Для экономии батареи нажмите Завершить, для продолжения выберите Новую цель.' :
+        settings.lang === 'de' ? 'Sie sind angekommen. Drücken Sie Beenden, um Akku zu sparen, oder wählen Sie Neues Ziel.' :
+        'You have arrived. Press Finish to save battery, or choose New target to continue.';
       speak(phrase, settings.lang, settings.voiceURI, { priority: true });
     }
   }, [silenced, settings.haptics, settings.lang, settings.voiceURI]);
@@ -1958,10 +1962,10 @@ export default function RideScreen({
           {ridePhase === 'PRE_RIDE' || ridePhase === 'LONG_STOP' ? (
             <>
               {!me
-                ? '⏳ ожидание GPS'
+                ? t('ride.waitGps')
                 : ridePhase === 'LONG_STOP'
-                ? '⏸ остановка · двигайтесь к цели'
-                : '🧭 двигайтесь к цели · авто-старт'}
+                ? t('ride.stoppedMove')
+                : t('ride.moveAuto')}
             </>
           ) : (
             <>
@@ -2011,9 +2015,9 @@ export default function RideScreen({
           />
         ) : (
           <>
-            <HudCell label="TO TARGET" value={dist.v} unit={dist.u} />
-            <HudCell label="AT O'CLOCK" value={clockHM} accent />
-            <HudCell label="ETA" value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : 'min'} />
+            <HudCell label={t('ride.toTarget')} value={dist.v} unit={dist.u} />
+            <HudCell label={t('ride.atClock')} value={clockHM} accent />
+            <HudCell label={t('ride.eta')} value={etaMin == null ? '—' : String(etaMin)} unit={etaMin == null ? '' : t('common.min')} />
           </>
         )}
       </div>
@@ -2178,7 +2182,7 @@ function TargetingHud({
             marginBottom: 3,
           }}
         >
-          до цели
+          {t('ride.distLabel')}
         </div>
         <div
           style={{
@@ -2214,12 +2218,12 @@ function TargetingHud({
             marginBottom: 3,
           }}
         >
-          наведение
+          {t('ride.aimLabel')}
         </div>
 
         {!mePresent ? (
           <div style={{ fontFamily: F_MONO, fontSize: 12, color: C.inkDim, letterSpacing: '0.04em' }}>
-            жду GPS…
+            {t('ride.waitGps2')}
           </div>
         ) : aligned ? (
           /* Стрелка совпала с вектором → голос уже сказан родителем */
@@ -2233,7 +2237,7 @@ function TargetingHud({
               animation: 'liveBlink 1.6s ease-in-out infinite',
             }}
           >
-            ↑ прямо!
+            {t('ride.straight')}
           </div>
         ) : (
           /* Подсказка куда повернуть */
@@ -2258,7 +2262,7 @@ function TargetingHud({
                 letterSpacing: '0.04em',
               }}
             >
-              {turnRight ? '→ вправо' : '← влево'}
+              {turnRight ? t('ride.right') : t('ride.left')}
             </div>
           </div>
         )}
@@ -2337,7 +2341,7 @@ function Toolbar({
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
-      <ToolButton onClick={onPause} active={stopped} label={stopped ? 'PLAY' : 'PAUSE'}>
+      <ToolButton onClick={onPause} active={stopped} label={stopped ? t('ride.play') : t('ride.pause')}>
         {stopped ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <polygon points="6,4 20,12 6,20" />
@@ -2349,13 +2353,13 @@ function Toolbar({
           </svg>
         )}
       </ToolButton>
-      <ToolButton onClick={onSay} label="VOICE">
+      <ToolButton onClick={onSay} label={t('ride.voice')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M3 10v4h4l5 5V5l-5 5H3z" />
           <path d="M16 8a5 5 0 010 8" />
         </svg>
       </ToolButton>
-      <ToolButton onClick={onMute} active={silenced} label="MUTE">
+      <ToolButton onClick={onMute} active={silenced} label={t('ride.mute')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M3 10v4h4l5 5V5l-5 5H3z" />
           <line x1="22" y1="9" x2="16" y2="15" />
@@ -2385,7 +2389,7 @@ function Toolbar({
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <rect x="6" y="6" width="12" height="12" />
         </svg>
-        STOP
+        {t('ride.stop')}
       </button>
     </div>
   );
@@ -2645,7 +2649,7 @@ function RideModal({
       )}
 
       <div style={{ fontFamily: F_DISP, fontSize: 28, fontWeight: 600, marginBottom: 4 }}>
-        {arrived ? 'Прибыли!' : 'Остановка'}
+        {arrived ? t('modal.arrived') : t('modal.stopped')}
       </div>
       {targetName && (
         <div style={{ fontFamily: F_MONO, fontSize: 11, letterSpacing: '0.1em', color: C.inkDim, marginBottom: 16 }}>
@@ -2664,17 +2668,17 @@ function RideModal({
           marginBottom: 14,
         }}
       >
-        <Stat label="Время" value={fmtTime(time)} />
-        <Stat label="Дистанция" value={`${dist.v} ${dist.u}`} />
-        <Stat label="Средняя" value={`${avg.v} ${avg.u}`} />
-        <Stat label="Макс." value={`${max.v} ${max.u}`} />
+        <Stat label={t('modal.time')} value={fmtTime(time)} />
+        <Stat label={t('modal.distance')} value={`${dist.v} ${dist.u}`} />
+        <Stat label={t('modal.avg')} value={`${avg.v} ${avg.u}`} />
+        <Stat label={t('modal.max')} value={`${max.v} ${max.u}`} />
       </div>
 
       {/* Имя поездки — только при arrived */}
       {arrived && (
         <input
           value={name}
-          placeholder="Имя поездки"
+          placeholder={t('modal.tripName')}
           onChange={(e) => onName(e.target.value)}
           style={{
             width: '100%',
@@ -2708,7 +2712,7 @@ function RideModal({
             fontWeight: 600,
           }}
         >
-          Завершить
+          {t('modal.finish')}
         </button>
         <button
           onClick={onNewTarget}
@@ -2725,7 +2729,7 @@ function RideModal({
             boxShadow: `0 0 24px ${C.glow}`,
           }}
         >
-          Новая цель
+          {t('modal.newTarget')}
         </button>
       </div>
 
@@ -2746,7 +2750,7 @@ function RideModal({
             marginBottom: 8,
           }}
         >
-          ↩ Вернуться к старту
+          {t('modal.goHome')}
         </button>
       )}
 
@@ -2767,7 +2771,7 @@ function RideModal({
             fontWeight: 500,
           }}
         >
-          Продолжить поездку
+          {t('modal.continue')}
         </button>
       )}
       <div style={{ flex: 1 }} />

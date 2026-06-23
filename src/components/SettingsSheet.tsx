@@ -5,6 +5,7 @@ import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP } from '../lib/constants';
 import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
 import { getDiagText, clearDiag, diagCount } from '../lib/diag';
 import { exportTextFile } from '../lib/exportFile';
+import { t } from '../lib/i18n';
 
 type Props = {
   settings: Settings;
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export default function SettingsSheet({ settings, onChange, onClose }: Props) {
+  const tr = (k: string) => t(k);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => listVoices(settings.lang));
 
   useEffect(() => {
@@ -22,10 +24,10 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
 
   const intervalLabel =
     settings.intervalSec === 0
-      ? 'off'
-      : `${Math.round(settings.intervalSec / 60)} min`;
+      ? tr('common.off')
+      : `${Math.round(settings.intervalSec / 60)} ${tr('common.min')}`;
 
-  const turnAngleLabel = settings.turnAngleDeg === 0 ? 'off' : `${settings.turnAngleDeg}°`;
+  const turnAngleLabel = settings.turnAngleDeg === 0 ? tr('common.off') : `${settings.turnAngleDeg}°`;
 
   return (
     <div
@@ -56,7 +58,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         <div style={{ width: 40, height: 4, background: C.line2, borderRadius: 2, margin: '0 auto 16px' }} />
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontFamily: F_DISP, fontSize: 24, fontWeight: 600, color: C.ink }}>Settings</div>
+          <div style={{ fontFamily: F_DISP, fontSize: 24, fontWeight: 600, color: C.ink }}>{tr('settings.title')}</div>
           <button
             onClick={onClose}
             aria-label="close"
@@ -76,7 +78,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
 
         {/* Language */}
         <Section>
-          <Label>Language</Label>
+          <Label>{tr('settings.language')}</Label>
           <Segmented
             options={[
               { value: 'ru', label: 'RU' },
@@ -91,7 +93,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         {/* Voice every */}
         <Section>
           <RowBetween>
-            <Label>Voice every</Label>
+            <Label>{tr('settings.voiceEvery')}</Label>
             <span style={{ fontFamily: F_MONO, fontSize: 13, color: C.target, letterSpacing: '0.04em' }}>
               {intervalLabel}
             </span>
@@ -106,17 +108,17 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             style={{ width: '100%', accentColor: C.target, marginTop: 8 }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 4 }}>
-            <span>off</span>
+            <span>{tr('common.off')}</span>
             <span>5</span>
             <span>10</span>
-            <span>15 min</span>
+            <span>15 {tr('common.min')}</span>
           </div>
         </Section>
 
         {/* Voice on turn ≥ angle */}
         <Section>
           <RowBetween>
-            <Label>Voice on turn ≥</Label>
+            <Label>{tr('settings.voiceTurn')}</Label>
             <span style={{ fontFamily: F_MONO, fontSize: 13, color: C.target, letterSpacing: '0.04em' }}>
               {turnAngleLabel}
             </span>
@@ -131,7 +133,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             style={{ width: '100%', accentColor: C.target, marginTop: 8 }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F_MONO, fontSize: 10, color: C.inkDim, marginTop: 4 }}>
-            <span>off</span>
+            <span>{tr('common.off')}</span>
             <span>90°</span>
             <span>180°</span>
           </div>
@@ -139,7 +141,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
 
         {/* Units */}
         <Section>
-          <Label>Units</Label>
+          <Label>{tr('settings.units')}</Label>
           <Segmented
             options={[
               { value: 'metric', label: 'M · KM' },
@@ -153,7 +155,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         {/* Haptics */}
         <Section>
           <RowBetween>
-            <Label>Haptics</Label>
+            <Label>{tr('settings.haptics')}</Label>
             <Toggle value={settings.haptics} onChange={(v) => onChange({ haptics: v })} />
           </RowBetween>
         </Section>
@@ -161,7 +163,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         {/* Voice picker (опционально) */}
         {voices.length > 0 && (
           <Section>
-            <Label>Voice</Label>
+            <Label>{tr('settings.voice')}</Label>
             <select
               value={settings.voiceURI ?? ''}
               onChange={(e) => onChange({ voiceURI: e.target.value || null })}
@@ -177,7 +179,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
                 fontSize: 12,
               }}
             >
-              <option value="">Auto</option>
+              <option value="">{tr('settings.auto')}</option>
               {voices.map((v) => (
                 <option key={v.voiceURI} value={v.voiceURI}>
                   {v.name}
@@ -189,7 +191,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
 
         {/* Diagnostics — временный debug-лог GPS↔голос для полевого теста */}
         <Section>
-          <Label>Diagnostics (GPS / voice)</Label>
+          <Label>{tr('settings.diag')}</Label>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button
               onClick={() => void exportTextFile(`vector-diag-${Date.now()}.txt`, getDiagText())}
@@ -205,7 +207,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
                 fontWeight: 600,
               }}
             >
-              Export log ({diagCount()})
+              {tr('settings.exportLog')} ({diagCount()})
             </button>
             <button
               onClick={() => clearDiag()}
@@ -219,7 +221,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
                 fontSize: 12,
               }}
             >
-              Clear
+              {tr('settings.clear')}
             </button>
           </div>
         </Section>

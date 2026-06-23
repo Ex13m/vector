@@ -17,6 +17,7 @@ import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
 import { dlog } from './lib/diag';
 import type { TrailPoint, Trip } from './lib/storage';
+import { setUiLang } from './lib/i18n';
 import { startHeading } from './lib/orientation';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
@@ -93,6 +94,7 @@ export default function App() {
 
   const [screen, setScreen] = useState<Screen>(savedSession ? 'ride' : 'pick');
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  setUiLang(settings.lang); // текущий язык UI для t() — каждый рендер, до рендера детей
   const [target, setTarget] = useState<LatLng | null>(savedSession?.target ?? null);
   const [targetName, setTargetName] = useState<string | null>(savedSession?.targetName ?? null);
   const [reverse, setReverse] = useState(savedSession?.reverse ?? false);

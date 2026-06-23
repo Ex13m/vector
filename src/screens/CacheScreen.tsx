@@ -17,6 +17,7 @@ import {
 } from '../lib/tiles';
 import { tileUrl } from '../lib/mapStyles';
 import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
+import { t } from '../lib/i18n';
 import type { TrailPoint } from '../lib/storage';
 import { haptic } from '../lib/feedback';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
@@ -340,7 +341,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
         >
           <span style={{ fontSize: 14, color: C.ok }}>✓</span>
           <span style={{ fontFamily: F_MONO, fontSize: 11, fontWeight: 600, color: C.ok, letterSpacing: '0.06em' }}>
-            Тайлы в кэше
+            {t('cache.tilesCached')}
           </span>
         </div>
       )}
@@ -372,12 +373,12 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
             textTransform: 'uppercase',
           }}
         >
-          <span>{tooBig ? 'Область слишком большая' : 'Область кэширования'}</span>
+          <span>{tooBig ? t('cache.tooBig') : t('cache.area')}</span>
           <span style={{ color: tooBig ? C.danger : C.target }}>~{fmtBytes(sizeBytes)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
           <span style={{ fontFamily: F_MONO, color: tooBig ? C.danger : C.ink, fontWeight: 500, fontSize: 13 }}>
-            ~{total} тайлов
+            ~{total} {t('cache.tiles')}
           </span>
           <span style={{ fontFamily: F_MONO, color: C.ink, fontWeight: 500, fontSize: 13 }}>zoom {zoomRange}</span>
         </div>
@@ -571,7 +572,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
                 textTransform: 'uppercase',
               }}
             >
-              Пропустить
+              {t('cache.skip')}
             </button>
             <button
               onClick={start}
@@ -590,7 +591,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
                 boxShadow: tooBig ? 'none' : `0 0 24px ${C.glow}`,
               }}
             >
-              {tooBig ? 'Слишком большая область' : 'Сохранить область'}
+              {tooBig ? t('cache.tooBigBtn') : t('cache.save')}
             </button>
           </div>
         )}
@@ -656,7 +657,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
               gap: 8,
             }}
           >
-            ✓ Готово
+            {t('cache.done')}
           </div>
         )}
       </div>

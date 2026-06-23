@@ -24,6 +24,7 @@ import {
   type TrailPoint,
 } from '../lib/storage';
 import { exportTextFile } from '../lib/exportFile';
+import { t as tr } from '../lib/i18n';
 import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import type { Settings } from '../App';
@@ -556,7 +557,7 @@ export default function PickScreen({
                 setSuggestOpen(true);
               }}
               onFocus={() => setSuggestOpen(true)}
-              placeholder="Введите цель"
+              placeholder={tr('pick.search')}
               style={{
                 flex: 1,
                 background: 'transparent',
@@ -777,7 +778,7 @@ export default function PickScreen({
                 textTransform: 'uppercase',
               }}
             >
-              Цель выбрана
+              {tr('pick.targetSet')}
             </div>
             <div
               style={{
@@ -843,7 +844,7 @@ export default function PickScreen({
               textTransform: 'uppercase',
             }}
           >
-            ⊕&nbsp; TAP THE MAP
+            ⊕&nbsp; {tr('pick.tapMap')}
           </div>
         )}
       </div>
@@ -1217,7 +1218,7 @@ function SavedSheet({
           directory: Directory.Cache,
           encoding: Encoding.UTF8,
         });
-        await Share.share({ title: trip.name, url: res.uri, dialogTitle: 'GPX-трек' });
+        await Share.share({ title: trip.name, url: res.uri, dialogTitle: tr('pick.gpxTitle') });
       } catch (e) {
         // пользователь отменил share или ошибка ФС — не критично
         console.warn('[gpx] native export failed:', e);
@@ -1275,7 +1276,7 @@ function SavedSheet({
       >
         <div style={{ width: 40, height: 4, background: C.line2, borderRadius: 2, margin: '0 auto 16px' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontFamily: F_DISP, fontSize: 24, fontWeight: 600 }}>Saved</div>
+          <div style={{ fontFamily: F_DISP, fontSize: 24, fontWeight: 600 }}>{tr('pick.saved')}</div>
           <button
             onClick={onClose}
             aria-label="close"
@@ -1304,8 +1305,8 @@ function SavedSheet({
           }}
         >
           {([
-            { key: 'targets', label: `Цели · ${saved.length}` },
-            { key: 'trips', label: `Поездки · ${trips.length}` },
+            { key: 'targets', label: `${tr('pick.targets')} · ${saved.length}` },
+            { key: 'trips', label: `${tr('pick.trips')} · ${trips.length}` },
           ] as const).map((t) => {
             const active = tab === t.key;
             return (
@@ -1503,7 +1504,7 @@ function SavedSheet({
                         fontWeight: 700,
                       }}
                     >
-                      ▶ Продолжить
+                      ▶ {tr('pick.continue')}
                     </button>
                     <button
                       onClick={() => void downloadGpx(t)}
@@ -1534,7 +1535,7 @@ function SavedSheet({
                         fontSize: 13,
                       }}
                     >
-                      ⌕ Лог
+                      ⌕ {tr('pick.log')}
                     </button>
                   </div>
                 </div>
