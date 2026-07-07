@@ -2,6 +2,15 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), нумерация — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.95] — 2026-07-07
+
+### Добавлено (подготовка к Google Play)
+
+- **Privacy Policy** (`public/privacy.html`, EN+RU) — деплоится с PWA на Netlify; раскрывает: данные только на устройстве, фоновая геолокация лишь во время поездки, сторонние запросы (тайлы, Nominatim) без трекинга.
+- **Release-подпись AAB**: `android/app/build.gradle` подхватывает `android/keystore.properties` (в .gitignore; шаблон `keystore.properties.example`). Без файла сборка остаётся неподписанной — CI не ломается. Команда: `./gradlew bundleRelease`.
+- **`docs/PLAY-LISTING.md`** — тексты листинга EN/RU, ответы Data Safety, обоснование фоновой геолокации + сценарий видео-демо, пошаговый порядок публикации.
+- **`HANDOFF.md`** — передача контекста для продолжения работы на другом компьютере (состояние, сборка, что осталось, что отложено).
+
 ## [0.5.94] — 2026-07-07
 
 ### Безопасность (по итогам аудита; алгоритмы езды/голоса не затронуты)
