@@ -58,6 +58,14 @@ function poiIcon(cls: string, type: string): string {
   return '';
 }
 
+// Nominatim usage policy требует идентифицировать приложение (User-Agent).
+// В Android WebView (Chromium) fetch разрешает свой User-Agent; браузеры,
+// которые запрещают (Safari), молча оставят системный — тоже валидный.
+declare const __APP_VERSION__: string;
+const NOMINATIM_UA =
+  `Vector/${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'} ` +
+  '(cycling beacon app; https://github.com/Ex13m/vector)';
+
 export type SearchOptions = {
   signal?: AbortSignal;
   /** Текущая позиция пользователя — bias ближайших результатов. */
@@ -83,7 +91,7 @@ export async function searchPlace(query: string, opts: SearchOptions = {}): Prom
     url.searchParams.set('bounded', '1');
   }
   try {
-    const res = await fetch(url.toString(), { headers: { 'Accept-Language': ACCEPT_LANG }, signal: opts.signal });
+    const res = await fetch(url.toString(), { headers: { 'Accept-Language': ACCEPT_LANG, 'User-Agent': NOMINATIM_UA }, signal: opts.signal });
     if (!res.ok) return [];
     const data = (await res.json()) as Array<{
       display_name: string;
@@ -125,7 +133,7 @@ export async function reverseGeocode(lat: number, lng: number, signal?: AbortSig
   url.searchParams.set('format', 'json');
   url.searchParams.set('zoom', '17');
   try {
-    const res = await fetch(url.toString(), { headers: { 'Accept-Language': ACCEPT_LANG }, signal });
+    const res = await fetch(url.toString(), { headers: { 'Accept-Language': ACCEPT_LANG, 'User-Agent': NOMINATIM_UA }, signal });
     if (!res.ok) return null;
     const data = (await res.json()) as { name?: string; display_name?: string; address?: Record<string, string> };
     if (data.name?.trim()) return data.name.trim();
