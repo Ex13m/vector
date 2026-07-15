@@ -66,7 +66,7 @@ Vector — это не пошаговый навигатор. Это маяк.
 
 **Категория:** Maps & Navigation · **Теги:** cycling, navigation, GPS
 **Контакт:** ex333m@gmail.com
-**Privacy Policy URL:** `https://<netlify-домен>/privacy.html` (страница уже в сборке; подставить реальный домен Netlify)
+**Privacy Policy URL:** `https://boisterous-heliotrope-499640.netlify.app/privacy.html` (проверено: страница живая, деплоится с каждым push в main)
 
 **Графика (готовит Игорь):**
 - Иконка 512×512 PNG (есть icon-512.png — проверить, что без прозрачных полей требований)

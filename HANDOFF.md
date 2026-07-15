@@ -12,7 +12,7 @@
 - ✅ Верификация разработчика: EXPROMT SERVIS s.r.o., package `cz.konsalting.vektor`, SHA-256 ключа подтверждён.
 - ✅ Release keystore: `vektor-release.jks` (НЕ в репо!) + креды — папка `vektor-keys` (скопировать на новый ПК вручную).
 - ✅ Gradle release-подпись: `android/app/build.gradle` читает `android/keystore.properties` (gitignored; шаблон — `keystore.properties.example`).
-- ✅ Privacy Policy: `public/privacy.html` — деплоится с PWA на Netlify → URL `https://<домен>/privacy.html`.
+- ✅ Privacy Policy: `public/privacy.html` → живой URL `https://boisterous-heliotrope-499640.netlify.app/privacy.html` (Netlify-сайт boisterous-heliotrope-499640 авто-деплоит main).
 - ✅ Тексты листинга + Data Safety + декларация фоновой геолокации: `docs/PLAY-LISTING.md`.
 - ✅ Аудит-фиксы v0.5.94: allowBackup=false · User-Agent для Nominatim · @capacitor/cli → devDeps (prod npm audit чист).
 
