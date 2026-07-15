@@ -75,6 +75,8 @@ const T: Record<string, Tr> = {
   'pick.continue':  { ru: 'Продолжить',       en: 'Continue',      de: 'Fortsetzen' },
   'pick.log':       { ru: 'Лог',              en: 'Log',           de: 'Log' },
   'pick.gpxTitle':  { ru: 'GPX-трек',         en: 'GPX track',     de: 'GPX-Track' },
+  'pick.start':     { ru: 'Старт →',          en: 'Start →',       de: 'Start →' },
+  'pick.mapPoint':  { ru: 'Точка на карте',   en: 'Map point',     de: 'Punkt auf der Karte' },
 
   // ── Кэш (CacheScreen) ─────────────────────────────────
   'cache.tilesCached': { ru: 'Тайлы в кэше',            en: 'Tiles cached',   de: 'Kacheln im Cache' },

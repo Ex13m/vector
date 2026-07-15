@@ -25,6 +25,7 @@ import {
 } from '../lib/storage';
 import { exportTextFile } from '../lib/exportFile';
 import { t as tr } from '../lib/i18n';
+import { speak } from '../lib/voice';
 import WhatsNew from '../components/WhatsNew';
 import { bearingTo, distanceM, fmtDist, getLastKnownPos, setLastKnownPos, type LatLng } from '../lib/geo';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
@@ -108,6 +109,24 @@ export default function PickScreen({
     localStorage.setItem('vector.lastSeenVersion', __APP_VERSION__);
     setShowWhatsNew(false);
   };
+
+  // ── Голосовой онбординг экрана цели: ОДИН раз за жизнь приложения.
+  // Ждём первый GPS-фикс — чтобы не пересечься с системным диалогом
+  // разрешения геолокации. Флаг ставится в момент озвучки.
+  useEffect(() => {
+    if (!me) return;
+    if (localStorage.getItem('vector.onboard.pick')) return;
+    const timer = window.setTimeout(() => {
+      localStorage.setItem('vector.onboard.pick', '1');
+      const phrase =
+        settings.lang === 'ru' ? 'Добро пожаловать в Vector! Выберите цель: тапните по карте или найдите место поиском, затем нажмите Старт.' :
+        settings.lang === 'de' ? 'Willkommen bei Vector! Wählen Sie ein Ziel: Tippen Sie auf die Karte oder nutzen Sie die Suche, dann drücken Sie Start.' :
+        'Welcome to Vector! Pick your target: tap the map or use search, then press Start.';
+      speak(phrase, settings.lang, settings.voiceURI, { priority: true });
+    }, 800);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
   const [favSheetTab, setFavSheetTab] = useState<'targets' | 'trips'>('targets');
   const [layerOpen, setLayerOpen] = useState(false);
   const [mapZoom, setMapZoom] = useState(15);
@@ -815,7 +834,7 @@ export default function PickScreen({
                 textOverflow: 'ellipsis',
               }}
             >
-              {targetName ?? 'Точка на карте'} {dist && <span style={{ color: C.inkDim }}>· {dist.v} {dist.u}</span>}
+              {targetName ?? tr('pick.mapPoint')} {dist && <span style={{ color: C.inkDim }}>· {dist.v} {dist.u}</span>}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -849,7 +868,7 @@ export default function PickScreen({
                   boxShadow: `0 0 24px ${C.glow}`,
                 }}
               >
-                Старт →
+                {tr('pick.start')}
               </button>
             </div>
           </>

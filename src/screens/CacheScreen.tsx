@@ -18,6 +18,7 @@ import {
 import { tileUrl } from '../lib/mapStyles';
 import { bearingTo, distanceM, fmtDist, type LatLng } from '../lib/geo';
 import { t } from '../lib/i18n';
+import { speak } from '../lib/voice';
 import type { TrailPoint } from '../lib/storage';
 import { haptic } from '../lib/feedback';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
@@ -70,6 +71,21 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
       { enableHighAccuracy: true },
     );
     return () => handle.clear();
+  }, []);
+
+  // ── Голосовой онбординг экрана кэша: ОДИН раз за жизнь приложения.
+  useEffect(() => {
+    if (localStorage.getItem('vector.onboard.cache')) return;
+    const timer = window.setTimeout(() => {
+      localStorage.setItem('vector.onboard.cache', '1');
+      const phrase =
+        settings.lang === 'ru' ? 'Сохраните область карты, чтобы навигация работала без интернета, или нажмите Пропустить.' :
+        settings.lang === 'de' ? 'Speichern Sie den Kartenbereich für Offline-Navigation, oder drücken Sie Überspringen.' :
+        'Save this map area to navigate offline, or press Skip.';
+      speak(phrase, settings.lang, settings.voiceURI, { priority: true });
+    }, 800);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Map mount + initial fitBounds (вы + цель в кадре, padding 60).

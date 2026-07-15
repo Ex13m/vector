@@ -41,11 +41,12 @@ const DEFAULT_SETTINGS: Settings = {
   intervalSec: DEFAULT_VOICE_INTERVAL,
   units: 'metric',
   haptics: true,
-  lang: (navigator.language || 'ru').toLowerCase().startsWith('de')
+  // Дефолт — английский; ru/de только если система на этих языках.
+  lang: (navigator.language || 'en').toLowerCase().startsWith('ru')
+    ? 'ru'
+    : (navigator.language || 'en').toLowerCase().startsWith('de')
     ? 'de'
-    : (navigator.language || 'ru').toLowerCase().startsWith('en')
-    ? 'en'
-    : 'ru',
+    : 'en',
   voiceURI: null,
   layer: 'sat', // дефолт — спутник (по требованию)
   showTrail: true,
