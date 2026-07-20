@@ -57,17 +57,16 @@ export default function CacheScreen({ settings, target, box, onDone, onSkip, onB
     };
   }, [box, settings.layer, target]);
 
+  // Базовый зум 16 (уровень улиц) ± дельта.
   const zooms = useMemo(() => {
-    const map = mapRef.current;
-    const center = Math.round(map?.getZoom() ?? 12);
+    const BASE = 16;
     const arr: number[] = [];
     for (let dz = -1 + zoomDelta; dz <= 1 + zoomDelta; dz++) {
-      const z = center + dz;
-      if (z >= 8 && z <= 17) arr.push(z);
+      const z = BASE + dz;
+      if (z >= 8 && z <= 18) arr.push(z);
     }
     return arr;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomDelta, mapRef.current]);
+  }, [zoomDelta]);
 
   const tilesPlanned = useMemo(() => tilesForBox(box, zooms), [box, zooms]);
   const totalCount = tilesPlanned.length;

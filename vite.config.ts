@@ -40,16 +40,16 @@ export default defineConfig({
           },
           {
             urlPattern: ({ url }) =>
-              url.host === 'tile.openstreetmap.org' ||
               url.host.endsWith('basemaps.cartocdn.com') ||
-              url.host === 'a.tile.opentopomap.org' ||
-              url.host === 'b.tile.opentopomap.org' ||
-              url.host === 'c.tile.opentopomap.org' ||
-              url.host === 'tile.opentopomap.org',
+              url.host === 'server.arcgisonline.com' ||
+              url.host.endsWith('.tile.opentopomap.org') ||
+              url.host === 'tile.opentopomap.org' ||
+              url.host.endsWith('.tile-cyclosm.openstreetmap.fr') ||
+              url.host === 'tile.openstreetmap.org',
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',
-              expiration: { maxEntries: 4096, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              expiration: { maxEntries: 6000, maxAgeSeconds: 60 * 60 * 24 * 90 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
