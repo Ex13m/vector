@@ -44,11 +44,20 @@ async function generate() {
   }
 
   // ── Android mipmaps (launcher icon) ──
+  // ВАЖНО: на Android 8+ реальную иконку рисует adaptive-XML (mipmap-anydpi-v26),
+  // который берёт ic_launcher_foreground — генерим и его, и round, иначе на
+  // телефоне остаётся старая иконка при обновлённых png (баг «иконка не та»).
   for (const { folder, size } of mipmapBuckets) {
     const dir = resolve(res, folder);
     ensureDir(dir);
     await sharp(maskSvg).resize(size, size).png().toFile(resolve(dir, 'ic_launcher.png'));
-    console.log(`  Android  ${folder}  ${size}x${size}`);
+    await sharp(maskSvg).resize(size, size).png().toFile(resolve(dir, 'ic_launcher_round.png'));
+    // Foreground-слой adaptive-иконки: холст 108dp против 48dp базы (×2.25).
+    // Маскируемый SVG (лого в safe-zone) кладём full-bleed — системная маска
+    // срежет края так же, как PWA-маска: иконка = как в вебе, консистентно.
+    const fg = Math.round(size * 2.25);
+    await sharp(maskSvg).resize(fg, fg).png().toFile(resolve(dir, 'ic_launcher_foreground.png'));
+    console.log(`  Android  ${folder}  ${size}x${size} (+round, +foreground ${fg})`);
   }
 
   // ── Splash drawable (512x512) ──
