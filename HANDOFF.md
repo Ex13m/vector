@@ -1,50 +1,45 @@
-# HANDOFF — продолжение работы на новом компьютере
+# HANDOFF — продолжение работы (актуально на 25.07.2026, v0.5.98)
 
 > Для новой сессии Claude Code: прочитай этот файл + `CLAUDE.md` + `docs/PLAY-LISTING.md`.
-> Состояние на 07.07.2026, v0.5.94, ветка `main` (всё запушено).
+> Ветка `main`, всё запушено (HEAD ≈ a7a0c11+). Память Claude: `~/.claude/projects/C--dev-vector/memory/`.
 
-## Где мы
-Полевые баги закрыты, приложение стабильно. **Цель недели — публикация в Google Play.**
-Полный аудит проекта (техдолг/безопасность/батарея) сделан 07.07.2026 → отчёт
-`Vector-audit-v0.5.93.pdf` (в Загрузках старого ПК); обязательные security-фиксы уже влиты (v0.5.94).
+## ГЛАВНОЕ: приложение УЖЕ В GOOGLE PLAY (internal testing)
+- Package `cz.konsalting.vektor`, приложение «Vector» создано в Console (Free), релиз **3 (1.0)** активен на внутреннем тестировании, пользователь установил с Play и полево протестировал (на машине, 90+ км/ч — всё работает).
+- Тестер: ex333m@gmail.com, ссылка приглашения: https://play.google.com/apps/internaltest/4701522240783756478
+- Собран и НЕ залит: `Downloads/vector-vc4-release.aab` (v0.5.98, versionCode 4 — фиксы i18n-хвостов). Залить обновлением в Internal testing.
 
-## Что уже готово к публикации
-- ✅ Верификация разработчика: EXPROMT SERVIS s.r.o., package `cz.konsalting.vektor`, SHA-256 ключа подтверждён.
-- ✅ Release keystore: `vektor-release.jks` (НЕ в репо!) + креды — папка `vektor-keys` (скопировать на новый ПК вручную).
-- ✅ Gradle release-подпись: `android/app/build.gradle` читает `android/keystore.properties` (gitignored; шаблон — `keystore.properties.example`).
-- ✅ Privacy Policy: `public/privacy.html` → живой URL `https://boisterous-heliotrope-499640.netlify.app/privacy.html` (Netlify-сайт boisterous-heliotrope-499640 авто-деплоит main).
-- ✅ Тексты листинга + Data Safety + декларация фоновой геолокации: `docs/PLAY-LISTING.md`.
-- ✅ Аудит-фиксы v0.5.94: allowBackup=false · User-Agent для Nominatim · @capacitor/cli → devDeps (prod npm audit чист).
+## Что осталось до Production (порядок)
+1. **Листинг** (Console → Развитие → Основная страница): иконка `Downloads/vector-play-icon-512.png`, графика `Downloads/vector-play-feature-1024x500.png`, скрины — `Downloads/my-screens-en/` (23 шт, реальные полевые, EN; лучшие: TARGET SET / straight! / ETA / Arrived / Saved / сплэш) или `output/img/screens/` (симуляторные, Прага). Тексты: `docs/PLAY-LISTING.md` §1.
+2. **Контент приложения**: Privacy URL `https://boisterous-heliotrope-499640.netlify.app/privacy.html` (живая) · Data Safety §2 · Content rating · аудитория 18+ · Ads No.
+3. **Декларация foreground/background location + ВИДЕО**: текст §3; видео пользователь пишет XRecorder'ом (звук=микрофон!) или второй камерой: уведомление → VOICE → экран выкл → фраза на чёрном → Finish. → YouTube Unlisted → ссылка в форму.
+4. **Production**: Create release → bundle из библиотеки (vc4) → ревью 1–7 дней.
 
-## Сборка подписанного AAB (локально)
+## v1.1 сразу после отправки MVP (решения пользователя зафиксированы)
+- **Paywall «полная версия»** (НЕ донат): 5 бесплатных поездок → экран «Unlock full version $4.99» (Google Play Billing, one-time product) → «Позже» = +2 поездки. Покупка навсегда, restore при переустановке.
+- **Промо-ролик** (Higgsfield, ~72 кредита осталось — экономить): 2–3 клипа image-to-video из `output/img/bike-*.png` + скрины + титры; 9:16 + 16:9. Делать К ВЫХОДУ из ревью (к старту рекламы).
+- **Реклама**: FB-группы (Bikepacking, MTB Community, Electric Bike Enthusiasts, eBike Smile eMTB, Cycle Touring Companions + чешские), Reddit (r/bikepacking r/MTB r/ebikes), Shorts/Reels/TikTok, Pinkbike/MTBR, позже Product Hunt. Промо-PDF: `output/Vector-promo.pdf`.
+
+## Отложено сознательно (НЕ делать без запроса)
+- **«Затык в логике»** — пользователь что-то заметил в поле, детали НЕ рассказал, просил после публикации. СПРОСИТЬ.
+- R8-минификация (только с полевым тестом) · GPS distanceFilter (трогает вход стейт-машины) · рефакторинг RideScreen · снятие диагностики (diag.ts) перед широким релизом.
+
+## Сборка подписанного AAB локально
+Нужны: JDK 21 (Temurin), Android SDK (`%LOCALAPPDATA%\Android\Sdk`, cmdline-tools + platforms;android-36 + build-tools;36.0.0), `android/keystore.properties` (по `.example`; ключ в `vektor-keys`, пароль в README-credentials там же).
 ```powershell
-# новый ПК: git clone https://github.com/Ex13m/vector.git && npm install
-# скопировать vektor-keys → создать android/keystore.properties по образцу .example
-npm run build
-npx cap sync android
-cd android
-./gradlew bundleRelease   # → android/app/build/outputs/bundle/release/app-release.aab
+npm run build ; npx cap sync android --inline
+cd android ; .\gradlew.bat bundleRelease   # → app/build/outputs/bundle/release/app-release.aab
 ```
-APK для прямой установки собирает CI (GitHub Actions) на каждый push в main (~4 мин).
+⚠️ Каждая заливка в Play = НОВЫЙ versionCode (android/app/build.gradle), «сожжённые» коды не переиспользуются.
+CI (GitHub Actions) на каждый push собирает ТЕСТОВЫЙ APK (debug-подпись) — для прямой установки.
 
-## Что осталось (порядок — в docs/PLAY-LISTING.md §4)
-1. Собрать AAB → Play Console → Internal testing → проверить на телефоне.
-2. Скриншоты (5–8) + feature graphic 1024×500.
-3. Заполнить Store listing / Data Safety / Content rating (готовые тексты в PLAY-LISTING.md).
-4. Декларация фоновой геолокации + видео-демо 30–60 с (сценарий там же) — главный риск ревью.
-5. Production → ревью.
-
-## Осознанно отложено (НЕ делать без запроса Игоря)
-- Минификация R8 (аудит-фикс №4) — только с полевым тестом release-сборки.
-- GPS distanceFilter (фикс №5) — влияет на вход стейт-машины; после релиза, осторожно.
-- Рефакторинг RideScreen (2 675 строк) + единый GPS-провайдер; убрать diag.ts перед Production-релизом ПОСЛЕ стабилизации.
-- Paywall — v1.1. Запуск бесплатный.
+## ВНЕ git (перенести на новый комп отдельно!)
+1. **`C:\Users\User\vektor-keys\`** — release-ключ + пароли. КРИТИЧНО, невосстановимо. 2–3 копии.
+2. `android/keystore.properties` — пересоздать по `.example` (или скопировать; в .gitignore).
+3. Память Claude: `C:\Users\User\.claude\projects\C--dev-vector\memory\` — решения/предпочтения (если не переносится — этот файл покрывает суть).
+4. Android SDK — поставить заново или собирать через CI.
 
 ## Правила работы (кратко; полные — CLAUDE.md)
-- Общение по-русски; код/коммиты по-английски; CHANGELOG в том же коммите; версию бампать каждый релиз.
-- **Алгоритмы езды/голоса не трогать** без явного запроса. Предлагать → ждать «да» → делать ровно это.
-- Секреты (jks, пароли) никогда не коммитить. CI release-подпись через GitHub Secrets НЕ настраивать без явного разрешения.
-- Вопросы — обычным текстом, не попапом.
+Русский в общении; код/коммиты EN; CHANGELOG в том же коммите; версию бампать; **алгоритмы езды/голоса не трогать**; предлагать → ждать «да»; секреты никогда в репо; вопросы обычным текстом.
 
-## Известные пороги (не менять)
-Прибытие <30 м · SHORT_STOP 5 с · LONG_STOP 3 мин · возобновление 50 м + >8 км/ч × 3 фикса · голос-интервал 60 с (дефолт) · угол поворота 65°.
+## Пороги (не менять)
+Прибытие <30 м · SHORT_STOP 5 с · LONG_STOP 3 мин · возобновление 50 м + >8 км/ч ×3 · интервал голоса 60 с · поворот 65°.
