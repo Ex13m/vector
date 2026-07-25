@@ -547,8 +547,8 @@ export default function PickScreen({
   async function saveCurrent() {
     if (!target) return;
     haptic('light', settings.haptics);
-    const def = targetName ?? 'Точка';
-    const name = window.prompt('Название точки:', def);
+    const def = targetName ?? tr('pick.point');
+    const name = window.prompt(tr('pick.pointName'), def);
     if (!name) return;
     await saveTarget({
       id: String(Date.now()),
@@ -1053,10 +1053,10 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 function LayerPopover({ layer, onPick }: { layer: Layer; onPick: (l: Layer) => void }) {
   const items: Array<{ v: Layer; l: string }> = [
-    { v: 'std', l: 'Карта' },
-    { v: 'sat', l: 'Спутник' },
-    { v: 'topo', l: 'Топо' },
-    { v: 'tour', l: 'Турист' },
+    { v: 'std', l: tr('layer.std') },
+    { v: 'sat', l: tr('layer.sat') },
+    { v: 'topo', l: tr('layer.topo') },
+    { v: 'tour', l: tr('layer.tour') },
   ];
   return (
     <div
@@ -1285,7 +1285,7 @@ function SavedSheet({
     const text = await getTripLog(trip.id);
     if (!text) {
       // Старые поездки (записаны до появления пер-поездочного лога) логов не имеют.
-      alert('Лог для этой поездки недоступен (записана до обновления).');
+      alert(tr('pick.noLog'));
       return;
     }
     const safe = trip.name.replace(/[^a-z0-9-_ ]/gi, '_');

@@ -632,7 +632,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
               boxShadow: `0 0 24px rgba(72,222,148,0.3)`,
             }}
           >
-            Поехали →
+            {t('cache.go')}
           </button>
         )}
 

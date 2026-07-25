@@ -88,6 +88,26 @@ const T: Record<string, Tr> = {
   'cache.save':        { ru: 'Сохранить область',      en: 'Save area',      de: 'Bereich speichern' },
   'cache.done':        { ru: '✓ Готово',               en: '✓ Done',         de: '✓ Fertig' },
 
+  // ── Слои карты ────────────────────────────────────────
+  'layer.std':  { ru: 'Карта',   en: 'Map',       de: 'Karte' },
+  'layer.sat':  { ru: 'Спутник', en: 'Satellite', de: 'Satellit' },
+  'layer.topo': { ru: 'Топо',    en: 'Topo',      de: 'Topo' },
+  'layer.tour': { ru: 'Турист',  en: 'Touring',   de: 'Touren' },
+
+  // ── Разное (пропуски i18n-свипа) ──────────────────────
+  'trip.name':      { ru: 'Поездка от',  en: 'Ride',   de: 'Fahrt' },
+  'cache.go':       { ru: 'Поехали →',   en: "Let's go →", de: "Los geht's →" },
+  'pick.point':     { ru: 'Точка',       en: 'Point',  de: 'Punkt' },
+  'pick.pointName': { ru: 'Название точки:', en: 'Point name:', de: 'Name des Punkts:' },
+  'pick.noLog':     { ru: 'Лог для этой поездки недоступен (записана до обновления).', en: 'No log for this trip (recorded before the update).', de: 'Kein Log für diese Fahrt (vor dem Update aufgezeichnet).' },
+  'target.start':   { ru: 'Старт',       en: 'Start',  de: 'Start' },
+  'media.toTarget': { ru: 'к цели',      en: 'to target', de: 'zum Ziel' },
+  'install.ios':    { ru: 'Поделиться → На экран Домой', en: 'Share → Add to Home Screen', de: 'Teilen → Zum Home-Bildschirm' },
+  'install.open':   { ru: 'Откроется как приложение', en: 'Opens as an app', de: 'Öffnet sich als App' },
+  'install.title':  { ru: 'Установить Vector', en: 'Install Vector', de: 'Vector installieren' },
+  'install.btn':    { ru: 'Установить',        en: 'Install',        de: 'Installieren' },
+  'install.later':  { ru: 'Позже',             en: 'Later',          de: 'Später' },
+
   // ── Модалка «Что нового» ──────────────────────────────
   'whatsNew.title': { ru: '✨ Что нового', en: "✨ What's new", de: '✨ Neu' },
   'whatsNew.gotIt': { ru: 'Понятно',      en: 'Got it',       de: 'Verstanden' },

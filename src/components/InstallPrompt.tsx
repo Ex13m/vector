@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F_DISP, F_MONO } from '../theme';
+import { t } from '../lib/i18n';
 
 type BIPEvt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 
@@ -79,10 +80,10 @@ export default function InstallPrompt() {
       }}
     >
       <div style={{ fontFamily: F_DISP, fontSize: 16, fontWeight: 600, marginBottom: 4, color: C.ink }}>
-        Установить Vector
+        {t('install.title')}
       </div>
       <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.06em', marginBottom: 12 }}>
-        {showIos ? 'Поделиться → На экран Домой' : 'Откроется как приложение'}
+        {showIos ? t('install.ios') : t('install.open')}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {evt && (
@@ -100,7 +101,7 @@ export default function InstallPrompt() {
               borderRadius: 10,
             }}
           >
-            Установить
+            {t('install.btn')}
           </button>
         )}
         <button
@@ -118,7 +119,7 @@ export default function InstallPrompt() {
             borderRadius: 10,
           }}
         >
-          Позже
+          {t('install.later')}
         </button>
       </div>
     </div>

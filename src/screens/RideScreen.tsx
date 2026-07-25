@@ -231,7 +231,7 @@ export default function RideScreen({
   // его встроенный foreground service держит процесс живым с выключенным экраном.
   useEffect(() => {
     startWakeAudio();
-    setupMediaSession('Vector · к цели');
+    setupMediaSession(`Vector · ${t('media.toTarget')}`);
     return () => stopWakeAudio();
   }, []);
 
@@ -1187,7 +1187,8 @@ export default function RideScreen({
     }
     let name = tripNameRef.current;
     if (!name) {
-      name = `Поездка от ${new Date().toLocaleString('ru-RU', {
+      const loc = settings.lang === 'ru' ? 'ru-RU' : settings.lang === 'de' ? 'de-DE' : 'en-US';
+      name = `${t('trip.name')} ${new Date().toLocaleString(loc, {
         day: '2-digit',
         month: '2-digit',
         hour: '2-digit',
@@ -2441,10 +2442,10 @@ function LayerPopover({
   onPick: (l: Parameters<typeof styleFor>[0]) => void;
 }) {
   const items: Array<{ v: Parameters<typeof styleFor>[0]; l: string }> = [
-    { v: 'std', l: 'Карта' },
-    { v: 'sat', l: 'Спутник' },
-    { v: 'topo', l: 'Топо' },
-    { v: 'tour', l: 'Турист' },
+    { v: 'std', l: t('layer.std') },
+    { v: 'sat', l: t('layer.sat') },
+    { v: 'topo', l: t('layer.topo') },
+    { v: 'tour', l: t('layer.tour') },
   ];
   return (
     <div

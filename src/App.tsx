@@ -17,7 +17,7 @@ import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
 import { loadRideSession, clearRideSession } from './lib/rideSession';
 import { dlog } from './lib/diag';
 import type { TrailPoint, Trip } from './lib/storage';
-import { setUiLang } from './lib/i18n';
+import { setUiLang, t } from './lib/i18n';
 import { startHeading } from './lib/orientation';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
@@ -226,7 +226,7 @@ export default function App() {
       resumeWakeAudio();
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
-      setTargetName('Старт');
+      setTargetName(t('target.start'));
       setReverse(false);
       setContWaypoints(waypoints);
       setContTripId(tripId);
@@ -258,7 +258,7 @@ export default function App() {
       const trail = trip.trail;
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
-      setTargetName('Старт');
+      setTargetName(t('target.start'));
       setReverse(false);
       setContTripId(trip.id);
       setContTripName(trip.name);
