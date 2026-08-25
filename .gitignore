@@ -28,3 +28,7 @@ dev-dist/
 *.keystore
 keystore.properties
 *-credentials.txt
+
+# Google Play API service-account key (НИКОГДА в репо)
+*-key.json
+play-api-key.json
