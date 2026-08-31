@@ -228,15 +228,23 @@ def cmd_upload(svc, args):
 
 
 def cmd_promote(svc, args):
+    # Пока приложение не опубликовано ни разу, оно числится черновиком, и API
+    # принимает для него только релизы со статусом draft: «Only releases with
+    # status draft may be created on draft app». Такой релиз закрывает пункт
+    # «Создайте и опубликуйте выпуск», после чего в Console разблокируется
+    # «Отправить приложение на проверку» — первую публикацию подтверждает
+    # владелец аккаунта. Для последующих обновлений статус completed работает
+    # как обычно (раскатка сразу после одобрения).
+    status = "draft" if args.draft else "completed"
     edit = svc.edits().insert(body={}, packageName=PACKAGE).execute()["id"]
     svc.edits().tracks().update(
         packageName=PACKAGE, editId=edit, track="production",
         body={"releases": [{
             "versionCodes": [str(args.version_code)],
-            "status": "completed",
+            "status": status,
             "releaseNotes": [{"language": "en-US", "text": args.notes}],
         }]}).execute()
-    print(f"PRODUCTION: versionCode={args.version_code} → на ревью (после commit)")
+    print(f"PRODUCTION: versionCode={args.version_code} · status={status}")
     finish(svc, edit, args)
 
 
@@ -264,6 +272,7 @@ def main():
     p = sub.add_parser("promote")
     p.add_argument("--version-code", required=True, type=int)
     p.add_argument("--notes", default="First public release")
+    p.add_argument("--draft", action="store_true", help="релиз в статусе draft (обязательно для ещё не опубликованного приложения)")
     p.add_argument("--commit", action="store_true")
     args = ap.parse_args()
     if args.help_setup or not args.cmd:
