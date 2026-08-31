@@ -16,17 +16,25 @@ type Props = {
   onBuy: () => void;
   /** «Позже»: +2 поездки. Не передавать, если бонус уже израсходован. */
   onLater: (() => void) | null;
+  /** Восстановить покупку — переустановка или новое устройство. */
+  onRestore: () => void;
   /** Закрыть без действия (крестик, тап по фону). */
   onClose: () => void;
+  /**
+   * Цена, как её отдал Google Play (валюта и налоги зависят от страны).
+   * null — магазин не ответил; тогда кнопка обходится без суммы, потому что
+   * показывать цифру, которой не подтвердил Play, нельзя.
+   */
+  price?: string | null;
   /** Идёт обращение к Google Play — блокируем повторные нажатия. */
   busy?: boolean;
   /** Текст ошибки от биллинга, если покупка не удалась. */
   error?: string | null;
 };
 
-const PRICE = '$4.99';
-
-export default function Paywall({ onBuy, onLater, onClose, busy = false, error = null }: Props) {
+export default function Paywall({
+  onBuy, onLater, onRestore, onClose, price = null, busy = false, error = null,
+}: Props) {
   const { ridesDone } = quotaState();
 
   return (
@@ -98,7 +106,7 @@ export default function Paywall({ onBuy, onLater, onClose, busy = false, error =
             opacity: busy ? 0.6 : 1,
           }}
         >
-          {busy ? t('paywall.working') : `${t('paywall.buy')} — ${PRICE}`}
+          {busy ? t('paywall.working') : price ? `${t('paywall.buy')} — ${price}` : t('paywall.buy')}
         </button>
 
         {onLater && (
@@ -121,10 +129,29 @@ export default function Paywall({ onBuy, onLater, onClose, busy = false, error =
           </button>
         )}
 
+        {/* Восстановление обязано быть на виду: после переустановки или на новом
+            устройстве это единственный способ вернуть оплаченный доступ. */}
+        <button
+          onClick={onRestore}
+          disabled={busy}
+          style={{
+            width: '100%',
+            height: 38,
+            marginTop: 8,
+            background: 'none',
+            color: C.target,
+            border: 'none',
+            fontFamily: F_DISP,
+            fontSize: 13,
+          }}
+        >
+          {t('paywall.restore')}
+        </button>
+
         <div
           style={{
             fontFamily: F_MONO, fontSize: 10, color: C.inkDim, letterSpacing: '0.04em',
-            textAlign: 'center', marginTop: 14, lineHeight: 1.6,
+            textAlign: 'center', marginTop: 8, lineHeight: 1.6,
           }}
         >
           {t('paywall.oneTime')}

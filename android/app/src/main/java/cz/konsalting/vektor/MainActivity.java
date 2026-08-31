@@ -10,6 +10,8 @@ public class MainActivity extends BridgeActivity {
         // Локальный плагин: исключение из Doze / battery optimization,
         // чтобы фоновый GPS-сервис не замораживался при выключенном экране.
         registerPlugin(BatteryOptimizationPlugin.class);
+        // Покупка полной версии — Google Play Billing без серверной части.
+        registerPlugin(BillingPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

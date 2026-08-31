@@ -57,6 +57,10 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // Play Billing 9.x: Google принимает обновления на нём до 31.08.2028
+    // (на 8.x — только до 31.08.2027). Разрешение com.android.vending.BILLING
+    // приезжает мержем из манифеста этой библиотеки, руками объявлять не нужно.
+    implementation "com.android.billingclient:billing:9.1.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

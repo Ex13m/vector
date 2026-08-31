@@ -139,6 +139,7 @@ const T: Record<string, Tr> = {
   'paywall.buy':   { ru: 'Купить полную версию', en: 'Buy the full version', de: 'Vollversion kaufen' },
   'paywall.later': { ru: 'Позже — ещё {n} поездки', en: 'Later — {n} more rides', de: 'Später — {n} weitere Fahrten' },
   'paywall.working': { ru: 'Google Play…', en: 'Google Play…', de: 'Google Play…' },
+  'paywall.restore': { ru: 'Уже покупали? Восстановить', en: 'Already bought? Restore', de: 'Schon gekauft? Wiederherstellen' },
   'paywall.oneTime': {
     ru: 'Разовая покупка. Восстанавливается при переустановке.',
     en: 'One-time purchase. Restored when you reinstall.',
