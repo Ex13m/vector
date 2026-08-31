@@ -17,6 +17,17 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
   const tr = (k: string) => t(k);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => listVoices(settings.lang));
 
+  // Счётчик записей лога держим в состоянии: сам лог живёт в модуле diag.ts и о
+  // его изменениях React не знает. Раньше число считалось прямо в разметке —
+  // после «Очистить» массив пустел, а на экране оставалось прежнее значение, и
+  // кнопка выглядела нерабочей. Пока лист открыт, обновляем раз в секунду —
+  // видно и очистку, и то, что запись продолжается.
+  const [logCount, setLogCount] = useState<number>(() => diagCount());
+  useEffect(() => {
+    const id = setInterval(() => setLogCount(diagCount()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     setVoices(listVoices(settings.lang));
     return onVoicesReady(() => setVoices(listVoices(settings.lang)));
@@ -207,10 +218,13 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
                 fontWeight: 600,
               }}
             >
-              {tr('settings.exportLog')} ({diagCount()})
+              {tr('settings.exportLog')} ({logCount})
             </button>
             <button
-              onClick={() => clearDiag()}
+              onClick={() => {
+                clearDiag();
+                setLogCount(diagCount());
+              }}
               style={{
                 background: C.bg2,
                 color: C.inkDim,

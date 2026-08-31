@@ -6,21 +6,21 @@ import type { UiLang } from './i18n';
 
 export const RELEASE_NOTES: Record<UiLang, string[]> = {
   ru: [
-    '🔋 Запрос «Работа в фоне» больше не появляется повторно',
-    '🗺️ Экран кэша больше не подвисает при первом запуске',
-    '🧭 Баннер компаса можно закрыть и при залоченном экране',
-    '🌍 Подсказки разрешений — на выбранном языке',
+    '🔄 После обновления из Play приложение сразу свежее — лишний вопрос убран',
+    '🔋 Баннер «Работа в фоне» уходит с первого подтверждения',
+    '🧭 Компас больше не просит разрешение, когда и так работает',
+    '🧹 Кнопка «Очистить» в диагностике действительно обнуляет счётчик',
   ],
   en: [
-    '🔋 Background-mode prompt no longer re-appears after allowing',
-    '🗺️ Map-cache screen no longer stalls on first launch',
-    '🧭 Compass banner is dismissible even with the screen locked',
-    '🌍 Permission prompts now follow your language',
+    '🔄 After a Play update the app is fresh right away — no extra prompt',
+    '🔋 The background-mode banner leaves on the first confirmation',
+    '🧭 No compass permission banner when the compass already works',
+    '🧹 The Clear button in diagnostics really resets the counter',
   ],
   de: [
-    '🔋 Hintergrund-Abfrage erscheint nach Erlauben nicht erneut',
-    '🗺️ Karten-Cache hängt beim ersten Start nicht mehr',
-    '🧭 Kompass-Banner auch bei gesperrtem Screen schließbar',
-    '🌍 Berechtigungs-Hinweise in deiner Sprache',
+    '🔄 Nach einem Play-Update ist die App sofort aktuell — ohne Extra-Frage',
+    '🔋 Der Hintergrund-Banner verschwindet beim ersten Bestätigen',
+    '🧭 Keine Kompass-Abfrage mehr, wenn der Kompass bereits läuft',
+    '🧹 „Löschen“ in der Diagnose setzt den Zähler wirklich zurück',
   ],
 };
