@@ -32,3 +32,13 @@ keystore.properties
 # Google Play API service-account key (НИКОГДА в репо)
 *-key.json
 play-api-key.json
+
+# Obsidian vault (личные заметки поверх репо)
+.obsidian/
+
+# Python bytecode от скриптов публикации
+__pycache__/
+
+# Локальные экспорты для Play (собираются заново)
+output/play/
+es-shims/
