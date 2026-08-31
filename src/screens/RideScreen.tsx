@@ -149,6 +149,10 @@ export default function RideScreen({
   // false → показываем баннер с кнопкой (фоновый GPS может замерзать).
   const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
   const [batteryBannerDismissed, setBatteryBannerDismissed] = useState(false);
+  // Гонка после системного диалога батареи: пока он открыт — onVis-перепроверка
+  // молчит; после согласия 5с игнорируем поздний устаревший «не исключено».
+  const battReqRef = useRef(false);
+  const battGraceRef = useRef(0);
   // Пока открыт системный диалог Doze — прячем баннер сразу (вернётся, если отменили).
   const [batteryRequesting, setBatteryRequesting] = useState(false);
   // mapKey меняется каждый раз когда карта создаётся заново (StrictMode remount).
@@ -299,7 +303,10 @@ export default function RideScreen({
     let cancelled = false;
     const check = () => {
       void isBatteryExempt().then((ok) => {
-        if (!cancelled) setBatteryExempt(ok);
+        if (cancelled) return;
+        if (battReqRef.current) return;                        // системный диалог ещё открыт
+        if (!ok && Date.now() < battGraceRef.current) return;  // поздний устаревший «false»
+        setBatteryExempt(ok);
       });
     };
     check();
@@ -318,8 +325,14 @@ export default function RideScreen({
   // onVis (выше) остаётся запасной перепроверкой.
   const onRequestBattery = useCallback(() => {
     haptic('medium', settings.haptics);
+    battReqRef.current = true;
     setBatteryRequesting(true);
     void requestBatteryExempt().then((ok) => {
+      battReqRef.current = false;
+      // Grace-период: сразу после согласия Android может ещё отдавать
+      // устаревший статус (гонка с onVis-перепроверкой) — 5с не верим «false»,
+      // иначе баннер мигает обратно и его приходится закрывать второй раз.
+      if (ok) battGraceRef.current = Date.now() + 5000;
       setBatteryExempt(ok);
       setBatteryRequesting(false);
     });
@@ -1686,12 +1699,27 @@ export default function RideScreen({
             padding: 14,
             borderRadius: 12,
             backdropFilter: 'blur(10px)',
-            zIndex: 7,
+            // Выше лок-оверлея (8), как батарейный: иначе при залоченном экране
+            // баннер видим, но некликабелен — не закрыть и не разрешить.
+            zIndex: 10,
+            pointerEvents: 'auto',
           }}
         >
-          <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Разрешить компас</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600 }}>{t('perm.compass.title')}</div>
+            <button
+              onClick={() => { haptic('light', settings.haptics); setNeedPerm(false); }}
+              aria-label={t('perm.hide')}
+              style={{
+                background: 'none', border: 'none', color: C.inkDim,
+                fontSize: 20, lineHeight: 1, padding: '0 2px', cursor: 'pointer',
+              }}
+            >
+              ×
+            </button>
+          </div>
           <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.04em', marginBottom: 10 }}>
-            Без него «по часам» считается только при движении.
+            {t('perm.compass.body')}
           </div>
           <button
             onClick={grantHeading}
@@ -1707,7 +1735,7 @@ export default function RideScreen({
               fontSize: 14,
             }}
           >
-            Разрешить
+            {t('perm.allow')}
           </button>
         </div>
       )}
@@ -1733,13 +1761,14 @@ export default function RideScreen({
             // Выше оверлея блокировки (8) и замка (9) — баннер энергосбережения
             // доступен даже при заблокированном экране (кнопка «Разрешить» важна).
             zIndex: 10,
+            pointerEvents: 'auto',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-            <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600 }}>⚡ Работа в фоне</div>
+            <div style={{ fontFamily: F_DISP, fontSize: 14, fontWeight: 600 }}>{t('perm.battery.title')}</div>
             <button
               onClick={() => { haptic('light', settings.haptics); setBatteryBannerDismissed(true); }}
-              aria-label="скрыть"
+              aria-label={t('perm.hide')}
               style={{
                 background: 'none', border: 'none', color: C.inkDim,
                 fontSize: 20, lineHeight: 1, padding: '0 2px', cursor: 'pointer',
@@ -1749,7 +1778,7 @@ export default function RideScreen({
             </button>
           </div>
           <div style={{ fontFamily: F_MONO, fontSize: 11, color: C.inkDim, letterSpacing: '0.04em', marginBottom: 10 }}>
-            Чтобы голос и трек не прерывались при выключенном экране — разрешите работу без ограничений батареи.
+            {t('perm.battery.body')}
           </div>
           <button
             onClick={onRequestBattery}
@@ -1765,7 +1794,7 @@ export default function RideScreen({
               fontSize: 14,
             }}
           >
-            Разрешить
+            {t('perm.allow')}
           </button>
         </div>
       )}

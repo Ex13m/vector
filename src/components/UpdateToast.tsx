@@ -1,4 +1,5 @@
 import { C, F_MONO } from '../theme';
+import { t } from '../lib/i18n';
 
 export default function UpdateToast({ onApply }: { onApply: () => void }) {
   return (
@@ -26,7 +27,7 @@ export default function UpdateToast({ onApply }: { onApply: () => void }) {
         animation: 'fadeUp 240ms ease',
       }}
     >
-      <span style={{ textTransform: 'uppercase' }}>Доступно обновление</span>
+      <span style={{ textTransform: 'uppercase' }}>{t('update.available')}</span>
       <button
         onClick={onApply}
         style={{
@@ -41,7 +42,7 @@ export default function UpdateToast({ onApply }: { onApply: () => void }) {
           borderRadius: 8,
         }}
       >
-        ОБНОВИТЬ
+        {t('update.apply')}
       </button>
     </div>
   );

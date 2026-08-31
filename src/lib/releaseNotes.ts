@@ -6,21 +6,18 @@ import type { UiLang } from './i18n';
 
 export const RELEASE_NOTES: Record<UiLang, string[]> = {
   ru: [
-    '🌍 Интерфейс теперь на выбранном языке (RU/EN/DE)',
-    '📣 Голос-подсказка при прибытии к цели',
-    '🗺️ Карта больше не сбивается случайным кручением',
-    '🔋 Надёжнее запрос GPS на первом запуске',
+    '🔋 Запрос «Работа в фоне» больше не появляется повторно',
+    '🧭 Баннер компаса можно закрыть и при залоченном экране',
+    '🌍 Подсказки разрешений — на выбранном языке',
   ],
   en: [
-    '🌍 Interface now in your selected language (RU/EN/DE)',
-    '📣 Spoken hint when you arrive',
-    '🗺️ Map no longer twists by accident',
-    '🔋 More reliable GPS permission at startup',
+    '🔋 Background-mode prompt no longer re-appears after allowing',
+    '🧭 Compass banner is dismissible even with the screen locked',
+    '🌍 Permission prompts now follow your language',
   ],
   de: [
-    '🌍 Oberfläche jetzt in deiner Sprache (RU/EN/DE)',
-    '📣 Sprachhinweis bei Ankunft',
-    '🗺️ Karte verdreht sich nicht mehr versehentlich',
-    '🔋 Zuverlässigere GPS-Abfrage beim Start',
+    '🔋 Hintergrund-Abfrage erscheint nach Erlauben nicht erneut',
+    '🧭 Kompass-Banner auch bei gesperrtem Screen schließbar',
+    '🌍 Berechtigungs-Hinweise in deiner Sprache',
   ],
 };

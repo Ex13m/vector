@@ -111,6 +111,21 @@ const T: Record<string, Tr> = {
   // ── Модалка «Что нового» ──────────────────────────────
   'whatsNew.title': { ru: '✨ Что нового', en: "✨ What's new", de: '✨ Neu' },
   'whatsNew.gotIt': { ru: 'Понятно',      en: 'Got it',       de: 'Verstanden' },
+
+  // ── Баннеры разрешений (RideScreen) ───────────────────
+  'perm.compass.title': { ru: 'Разрешить компас', en: 'Enable compass', de: 'Kompass erlauben' },
+  'perm.compass.body':  { ru: 'Без него «по часам» считается только при движении.', en: 'Without it, the clock bearing updates only while moving.', de: 'Ohne ihn wird die Uhr-Richtung nur in Bewegung berechnet.' },
+  'perm.battery.title': { ru: '⚡ Работа в фоне', en: '⚡ Background mode', de: '⚡ Hintergrundbetrieb' },
+  'perm.battery.body':  { ru: 'Чтобы голос и трек не прерывались при выключенном экране — разрешите работу без ограничений батареи.', en: 'To keep voice and tracking alive with the screen off, allow running without battery restrictions.', de: 'Damit Stimme und Track bei ausgeschaltetem Display weiterlaufen, Betrieb ohne Akku-Einschränkung erlauben.' },
+  'perm.allow':         { ru: 'Разрешить', en: 'Allow', de: 'Erlauben' },
+  'perm.hide':          { ru: 'скрыть',    en: 'hide',  de: 'ausblenden' },
+
+  // ── Обновление PWA ────────────────────────────────────
+  'update.available': { ru: 'Доступно обновление', en: 'Update available', de: 'Update verfügbar' },
+  'update.apply':     { ru: 'ОБНОВИТЬ',            en: 'UPDATE',           de: 'AKTUALISIEREN' },
+
+  // ── Журнал ────────────────────────────────────────────
+  'pick.downloadLog': { ru: 'скачать лог поездки', en: 'download ride log', de: 'Fahrt-Log herunterladen' },
 };
 
 // Текущий язык UI. Ставится из App (setUiLang) в теле рендера — ДО рендера

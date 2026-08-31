@@ -1567,7 +1567,7 @@ function SavedSheet({
                     </button>
                     <button
                       onClick={() => void downloadLog(t)}
-                      aria-label="скачать лог поездки"
+                      aria-label={tr('pick.downloadLog')}
                       style={{
                         flex: 1,
                         height: 44,
