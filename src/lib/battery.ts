@@ -42,7 +42,16 @@ export async function requestBatteryExempt(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true;
   try {
     const { ignoring } = await BatteryOptimization.request();
-    return ignoring;
+    if (ignoring) return true;
+    // Один «нет» сразу после закрытия диалога — ещё не отказ пользователя:
+    // на части прошивок запись в белый список Doze происходит асинхронно, и
+    // PowerManager в момент ActivityResult отдаёт прежнее значение. Из-за этого
+    // баннер возвращался, хотя разрешение уже было выдано. Перепроверяем.
+    for (const delay of [300, 700, 1500]) {
+      await new Promise<void>((r) => setTimeout(r, delay));
+      if (await isBatteryExempt()) return true;
+    }
+    return false;
   } catch {
     return false;
   }

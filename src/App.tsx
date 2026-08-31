@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { Capacitor } from '@capacitor/core';
 // Экраны — lazy: каждый в своём чанке. На старте грузится только PickScreen,
 // код RideScreen (2.7k строк) и CacheScreen откладывается до перехода.
 const PickScreen = lazy(() => import('./screens/PickScreen'));
@@ -133,6 +134,20 @@ export default function App() {
       if (reg) setInterval(() => reg.update(), 60 * 60 * 1000);
     },
   });
+
+  // В APK обновление приезжает из Google Play: файлы на диске уже новые, но
+  // старый service worker продолжает отдавать свой precache. Отсюда два симптома
+  // после установки из маркета: висит тост «Доступно обновление» И не показывается
+  // «Что нового» (в исполняемом коде оставался прежний __APP_VERSION__).
+  // Спрашивать здесь нечего — пользователь уже обновился, применяем молча.
+  // Сам SW не отключаем: он же отдаёт офлайн-тайлы (runtimeCaching 'map-tiles').
+  // Не трогаем во время поездки — перезагрузка страницы прервала бы навигацию.
+  const isNative = Capacitor.isNativePlatform();
+  useEffect(() => {
+    if (!isNative || !needRefresh || screen === 'ride') return;
+    dlog('APP', 'native: applying waiting SW silently (update came from Play)');
+    void updateServiceWorker(true);
+  }, [isNative, needRefresh, screen, updateServiceWorker]);
 
   useEffect(() => {
     document.documentElement.lang = settings.lang;

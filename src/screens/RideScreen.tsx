@@ -143,6 +143,8 @@ export default function RideScreen({
   tripNameRef.current = tripName;
   const [peek, setPeek] = useState(false);
   const [needPerm, setNeedPerm] = useState(false);
+  // Счётчик пересоздания подписки на компас (после выдачи iOS-разрешения).
+  const [headingEpoch, setHeadingEpoch] = useState(0);
   const [gpsLost, setGpsLost] = useState(true);
   const [showQuitModal, setShowQuitModal] = useState(false);
   // batteryExempt: исключено ли приложение из Doze. null = ещё не проверяли.
@@ -619,17 +621,29 @@ export default function RideScreen({
   // Один callback-объект: setCompassFired — стабильная setState-функция, можно
   // использовать в closure без включения в deps-массив.
   useEffect(() => {
-    if (needsIosPermission()) {
-      setNeedPerm(true);
-    } else {
-      return beginHeading();
-    }
-  }, [beginHeading]);
+    // Наличие DeviceOrientationEvent.requestPermission (iOS-стиль) само по себе
+    // НЕ значит, что компас закрыт: на части WebView метод есть, а события идут
+    // без всякого запроса — и баннер вылезал на каждый вход в поездку, хотя
+    // наведение уже работало. Поэтому подписываемся сразу и спрашиваем, только
+    // если курс за 1.5 с так и не пришёл (учитывая прогрев компаса в App.tsx).
+    const stop = beginHeading();
+    if (!needsIosPermission()) return stop;
+    const probe = setTimeout(() => {
+      if (getLastHeading() == null) setNeedPerm(true);
+    }, 1500);
+    return () => {
+      clearTimeout(probe);
+      stop?.();
+    };
+  }, [beginHeading, headingEpoch]);
 
   async function grantHeading() {
     const ok = await requestIosPermission();
     setNeedPerm(false);
-    if (ok) beginHeading();
+    // Подписка уже живёт (её ставит эффект выше) — вместо второго startHeading,
+    // который удвоил бы слушатели и хаптику, пересоздаём существующую: на iOS
+    // события начинают идти только после выданного разрешения.
+    if (ok) setHeadingEpoch((n) => n + 1);
   }
 
   // ── Карта.
