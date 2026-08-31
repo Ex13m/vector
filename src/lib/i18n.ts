@@ -126,6 +126,15 @@ const T: Record<string, Tr> = {
 
   // ── Журнал ────────────────────────────────────────────
   'pick.downloadLog': { ru: 'скачать лог поездки', en: 'download ride log', de: 'Fahrt-Log herunterladen' },
+
+  // ── Сохранённое: пустые состояния и кнопка ────────────
+  'pick.emptyTargets': { ru: 'Поставьте цель и нажмите ★', en: 'Pick a target, then tap ★', de: 'Ziel wählen und ★ tippen' },
+  'pick.saveCurrent':  { ru: '+ Сохранить текущую цель',   en: '+ Save current target',    de: '+ Aktuelles Ziel speichern' },
+  'pick.emptyTrips':   { ru: 'Поездок ещё нет',            en: 'No rides yet',             de: 'Noch keine Fahrten' },
+
+  // ── Экран кэша ────────────────────────────────────────
+  'cache.pinchHint': { ru: 'расширить / сжать охват', en: 'widen / shrink the area', de: 'Bereich größer / kleiner' },
+  'cache.cancel':    { ru: 'Отмена',                  en: 'Cancel',                  de: 'Abbrechen' },
 };
 
 // Текущий язык UI. Ставится из App (setUiLang) в теле рендера — ДО рендера

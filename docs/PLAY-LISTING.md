@@ -1,4 +1,4 @@
-# Google Play — листинг, Data Safety, декларация фоновой геолокации
+# Google Play — листинг, Data Safety, декларация foreground-service location
 
 Черновики для Play Console. Package: `cz.konsalting.vektor` · Разработчик: EXPROMT SERVIS s.r.o. (верифицирован, SHA-256 release-ключа подтверждён).
 
@@ -65,7 +65,7 @@ Vector — это не пошаговый навигатор. Это маяк.
 ```
 
 **Категория:** Maps & Navigation · **Теги:** cycling, navigation, GPS
-**Контакт:** ex333m@gmail.com
+**Контакт:** konsaltingprofi@gmail.com
 **Privacy Policy URL:** `https://boisterous-heliotrope-499640.netlify.app/privacy.html` (проверено: страница живая, деплоится с каждым push в main)
 
 **Графика (готовит Игорь):**
@@ -88,7 +88,7 @@ Vector — это не пошаговый навигатор. Это маяк.
 
 ---
 
-## 3. Декларация фоновой геолокации (Sensitive permissions form)
+## 3. Декларация foreground-service location (Sensitive permissions form)
 
 **Разрешения:** ACCESS_FINE_LOCATION + FOREGROUND_SERVICE_LOCATION (фоновый доступ через foreground-сервис с уведомлением).
 
@@ -119,5 +119,5 @@ Guidance stops when the user finishes the ride.
 2. Play Console → Create app (`Vector`, App/Free) → пройти Declarations.
 3. **Internal testing** → загрузить AAB → добавить свой e-mail в тестеры → установить с Play, прогнать поездку.
 4. Заполнить: Store listing (тексты выше) + графика · Data Safety (§2) · Content rating (анкета: утилита, Everyone) · Target audience 18+ (проще всего) · Ads: No.
-5. App content → Sensitive permissions → декларация фоновой геолокации (§3) + ссылка на видео.
+5. App content → Sensitive permissions → декларация foreground-service location (§3) + ссылка на видео.
 6. Production → Create release → тот же AAB → отправить на ревью (1–7 дней; фоновая геолокация может добавить итерацию).

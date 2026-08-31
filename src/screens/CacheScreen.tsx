@@ -513,7 +513,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
             whiteSpace: 'nowrap',
           }}
         >
-          ← <span style={{ color: C.target }}>PINCH</span> расширить / сжать охват →
+          ← <span style={{ color: C.target }}>PINCH</span> {t('cache.pinchHint')} →
         </div>
       )}
 
@@ -651,7 +651,7 @@ export default function CacheScreen({ settings, target, box, onSkip, onDone, onB
               fontWeight: 600,
             }}
           >
-            Отмена
+            {t('cache.cancel')}
           </button>
         )}
 

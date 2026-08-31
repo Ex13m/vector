@@ -21,6 +21,13 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
+// Потолок генерации. Область всегда отвергается задолго до него (MAX_TILES = 2000),
+// но список строился целиком ДО проверки: на первом запуске без GPS-фикса карта
+// открывается на zoom 4, и её границы дают ~500 тыс. объектов (при зуме ≤2 — миллионы,
+// вплоть до OOM в WebView). Обрываем цикл — «слишком большая область» определится
+// по длине списка как и раньше, но без лавины аллокаций.
+const GEN_CAP = 50_000;
+
 export function tilesForBox(box: LngLatBox, zooms: number[]): TilePoint[] {
   const res: TilePoint[] = [];
   for (const z of zooms) {
@@ -30,7 +37,12 @@ export function tilesForBox(box: LngLatBox, zooms: number[]): TilePoint[] {
     const x1 = Math.max(a.x, b.x);
     const y0 = Math.min(a.y, b.y);
     const y1 = Math.max(a.y, b.y);
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) res.push({ z, x, y });
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        if (res.length >= GEN_CAP) return res;
+        res.push({ z, x, y });
+      }
+    }
   }
   return res;
 }

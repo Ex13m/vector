@@ -1379,7 +1379,7 @@ function SavedSheet({
           <>
             {saved.length === 0 && (
               <div style={{ color: C.inkDim, fontFamily: F_DISP, fontSize: 13, padding: '20px 4px', textAlign: 'center' }}>
-                Поставьте цель и нажмите ★
+                {tr('pick.emptyTargets')}
               </div>
             )}
             {saved.map((s) => (
@@ -1459,7 +1459,7 @@ function SavedSheet({
                   fontWeight: 600,
                 }}
               >
-                + Сохранить текущую цель
+                {tr('pick.saveCurrent')}
               </button>
             )}
           </>
@@ -1469,7 +1469,7 @@ function SavedSheet({
           <>
             {trips.length === 0 && (
               <div style={{ color: C.inkDim, fontFamily: F_DISP, fontSize: 13, padding: '20px 4px', textAlign: 'center' }}>
-                Поездок ещё нет
+                {tr('pick.emptyTrips')}
               </div>
             )}
             {trips.map((t) => {
