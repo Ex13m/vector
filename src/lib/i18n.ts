@@ -120,6 +120,31 @@ const T: Record<string, Tr> = {
   'perm.allow':         { ru: 'Разрешить', en: 'Allow', de: 'Erlauben' },
   'perm.hide':          { ru: 'скрыть',    en: 'hide',  de: 'ausblenden' },
 
+  // ── Покупка полной версии ─────────────────────────────
+  'paywall.ridesUsed': {
+    ru: 'ПОЕЗДОК ПРОЙДЕНО: {n}',
+    en: 'RIDES COMPLETED: {n}',
+    de: 'FAHRTEN ABSOLVIERT: {n}',
+  },
+  'paywall.title': {
+    ru: 'Разблокируйте полную версию',
+    en: 'Unlock the full version',
+    de: 'Vollversion freischalten',
+  },
+  'paywall.body': {
+    ru: 'Бесплатные поездки закончились. Полная версия снимает ограничение навсегда — тот же Vector, без рекламы, без подписки и без аккаунтов.',
+    en: 'Your free rides are used up. The full version lifts the limit for good — the same Vector, with no ads, no subscription and no accounts.',
+    de: 'Deine kostenlosen Fahrten sind aufgebraucht. Die Vollversion hebt das Limit dauerhaft auf — derselbe Vector, ohne Werbung, ohne Abo, ohne Konten.',
+  },
+  'paywall.buy':   { ru: 'Купить полную версию', en: 'Buy the full version', de: 'Vollversion kaufen' },
+  'paywall.later': { ru: 'Позже — ещё {n} поездки', en: 'Later — {n} more rides', de: 'Später — {n} weitere Fahrten' },
+  'paywall.working': { ru: 'Google Play…', en: 'Google Play…', de: 'Google Play…' },
+  'paywall.oneTime': {
+    ru: 'Разовая покупка. Восстанавливается при переустановке.',
+    en: 'One-time purchase. Restored when you reinstall.',
+    de: 'Einmalkauf. Wird bei Neuinstallation wiederhergestellt.',
+  },
+
   // ── Обновление PWA ────────────────────────────────────
   'update.available': { ru: 'Доступно обновление', en: 'Update available', de: 'Update verfügbar' },
   'update.apply':     { ru: 'ОБНОВИТЬ',            en: 'UPDATE',           de: 'AKTUALISIEREN' },
