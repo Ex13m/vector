@@ -57,6 +57,8 @@ Pick a target on the map, put the phone in your pocket and ride. Vector speaks t
 • Russian, English, German voice and interface
 • No accounts, no ads, no tracking — your data stays on your device
 
+Two ways to use it. Ride TO something — a lake, a viewpoint, a town on the horizon. Or drop the target on the spot you started from — the car, the camp, the hut — and just wander: Vector keeps telling you how far away you have drifted and which way leads back. Handy in the forest, on fishing trips, anywhere it is easy to lose your bearings.
+
 Background location is used only during an active ride to keep the voice guidance running while the screen is off (a visible notification is shown).
 
 Made for cyclists who want to explore, not follow arrows.""",
@@ -78,6 +80,8 @@ Made for cyclists who want to explore, not follow arrows.""",
 • Продолжение поездки, возврат к старту, цепочки целей
 • Русский, английский, немецкий — голос и интерфейс
 • Без аккаунтов, рекламы и слежки — данные остаются на устройстве
+
+Два сценария. Первый — ехать к цели: озеро, смотровая, город на горизонте. Второй — поставить цель на месте старта (машина, лагерь, домик) и просто гулять: Vector всё время говорит, насколько ты удалился и в какой стороне обратный путь. Удобно в лесу, на рыбалке и там, где легко потерять направление.
 
 Фоновая геолокация используется только во время активной поездки, чтобы голос не прерывался при выключенном экране (показывается уведомление).
 
