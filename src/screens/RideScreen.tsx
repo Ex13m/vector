@@ -41,6 +41,7 @@ import { saveRideSession, clearRideSession, seedRidden, type RideSession } from 
 import { startWakeAudio, stopWakeAudio, resumeWakeAudio, setupMediaSession, isWakeAudioPlaying } from '../lib/wakeAudio';
 import { watchPosition as gpsWatch } from '../lib/geolocation';
 import { t } from '../lib/i18n';
+import { countFinishedRide } from '../lib/rideQuota';
 import { isBatteryExempt, requestBatteryExempt } from '../lib/battery';
 import { haptic, chimeOnTarget } from '../lib/feedback';
 import type { Settings } from '../App';
@@ -2144,6 +2145,11 @@ export default function RideScreen({
             // triggerArrived() → setArrived (асинхронно) → эффект авто-сохранения,
             // но onJournal() размонтировал экран раньше → трек терялся.
             persistTrip();
+            // Единственное место, где поездка действительно закончена: «Новая
+            // цель» и «Вернуться» продолжают ту же. Считаем по id записи, чтобы
+            // возобновление из журнала и повторное завершение не съело вторую
+            // бесплатную поездку.
+            countFinishedRide(savedTripIdRef.current);
             clearRideSession(); // поездка завершена — резюм не предлагать
             if (!arrived) setArrived(true);
             haptic('light', settings.haptics);

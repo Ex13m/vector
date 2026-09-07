@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Capacitor } from '@capacitor/core';
 // Экраны — lazy: каждый в своём чанке. На старте грузится только PickScreen,
@@ -20,6 +20,9 @@ import { dlog } from './lib/diag';
 import type { TrailPoint, Trip } from './lib/storage';
 import { setUiLang, t } from './lib/i18n';
 import { startHeading } from './lib/orientation';
+import Paywall from './components/Paywall';
+import { quotaState, useLater } from './lib/rideQuota';
+import { initBilling, getPrice, buyFullVersion, restorePurchase } from './lib/billing';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
   ? lazy(() => import('./components/DevBar'))
@@ -165,7 +168,47 @@ export default function App() {
     return startHeading(() => {});
   }, [target, screen]);
 
+  // ── Платная версия ────────────────────────────────────────────────────
+  // Ворота стоят ровно на «Старт →»: до этого момента приложение работает
+  // полностью, ничего не урезано. Начатую поездку не прерываем никогда —
+  // проверка только на входе.
+  const [paywall, setPaywall] = useState(false);
+  const [paywallBusy, setPaywallBusy] = useState(false);
+  const [paywallError, setPaywallError] = useState<string | null>(null);
+  const [price, setPrice] = useState<string | null>(null);
+  // Куда пользователь собирался, когда упёрся в лимит: после покупки или
+  // «Позже» продолжаем ровно туда, а не выкидываем его на выбор цели заново.
+  const pendingRide = useRef<[LatLng, string | null, LngLatBox] | null>(null);
+
+  useEffect(() => {
+    void initBilling().then((ok) => {
+      if (ok) void getPrice().then((p) => setPrice(p?.formattedPrice ?? null));
+    });
+  }, []);
+
+  /** Пустить пользователя туда, куда он шёл до появления экрана покупки. */
+  const resumePendingRide = useCallback(() => {
+    setPaywall(false);
+    const args = pendingRide.current;
+    pendingRide.current = null;
+    if (!args) return;
+    resumeWakeAudio();
+    const [tg, name, box] = args;
+    setTarget(tg);
+    setTargetName(name);
+    setReverse(false);
+    setResumeTrail(contTrail ?? null);
+    setPickBox(box);
+    setScreen('cache');
+  }, [contTrail]);
+
   const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
+    if (!quotaState().canRide) {
+      pendingRide.current = [tg, name, box];
+      setPaywallError(null);
+      setPaywall(true);
+      return;
+    }
     resumeWakeAudio(); // внутри жеста «Старт →» — запускаем фоновый аудио
     setTarget(tg);
     setTargetName(name);
@@ -350,6 +393,44 @@ export default function App() {
       </Suspense>
       {showSettings && (
         <SettingsSheet settings={settings} onChange={updateSettings} onClose={() => setShowSettings(false)} />
+      )}
+      {paywall && (
+        <Paywall
+          price={price}
+          busy={paywallBusy}
+          error={paywallError}
+          onBuy={() => {
+            setPaywallBusy(true);
+            setPaywallError(null);
+            void buyFullVersion()
+              .then(() => {
+                // Окно Play открылось. Исход придёт событием и обновит квоту —
+                // проверяем, разблокировало ли, когда пользователь вернётся.
+                setPaywallBusy(false);
+                if (quotaState().canRide) resumePendingRide();
+              })
+              .catch((e: unknown) => {
+                setPaywallBusy(false);
+                setPaywallError(String(e instanceof Error ? e.message : e));
+              });
+          }}
+          onRestore={() => {
+            setPaywallBusy(true);
+            setPaywallError(null);
+            void restorePurchase()
+              .then((r) => {
+                setPaywallBusy(false);
+                if (r.owned) resumePendingRide();
+                else setPaywallError(t('paywall.noPurchase'));
+              })
+              .catch((e: unknown) => {
+                setPaywallBusy(false);
+                setPaywallError(String(e instanceof Error ? e.message : e));
+              });
+          }}
+          onLater={quotaState().laterAvailable ? () => { useLater(); resumePendingRide(); } : null}
+          onClose={() => { setPaywall(false); pendingRide.current = null; }}
+        />
       )}
       {needRefresh && <UpdateToast onApply={() => updateServiceWorker(true)} />}
       <InstallPrompt />

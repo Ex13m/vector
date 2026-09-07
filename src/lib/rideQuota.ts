@@ -16,6 +16,10 @@
 const KEY_DONE = 'vector.quota.ridesDone';
 const KEY_LATER = 'vector.quota.laterUsed';
 const KEY_UNLOCKED = 'vector.quota.unlocked';
+const KEY_COUNTED = 'vector.quota.countedIds';
+
+/** Сколько id завершённых поездок помним, чтобы не считать одну дважды. */
+const COUNTED_MAX = 60;
 
 /** Сколько поездок доступно бесплатно. */
 export const FREE_RIDES = 5;
@@ -81,15 +85,34 @@ export function quotaState(): QuotaState {
   };
 }
 
+function readIds(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY_COUNTED) ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Отметить завершённую поездку. Вызывать там же, где поездка сохраняется в
- * журнал, — то есть один раз на завершение, а не на каждый GPS-фикс.
+ * Отметить завершённую поездку — вызывать только на «Завершить», а не на
+ * «Новая цель» и «Вернуться к старту»: те продолжают ту же поездку.
  *
- * После покупки не считаем: счётчик замирает, чтобы при возврате покупки
- * (refund) пользователь не оказался сразу за лимитом.
+ * `rideId` — id записи в журнале. По нему считаем один раз: поездку можно
+ * завершить, потом возобновить из журнала и завершить снова, и это по-прежнему
+ * одна поездка. Без id считаем как обычно.
+ *
+ * После покупки не считаем вовсе: счётчик замирает, чтобы при возврате средств
+ * пользователь не оказался сразу за лимитом.
  */
-export function countFinishedRide(): void {
+export function countFinishedRide(rideId?: string | null): void {
   if (readFlag(KEY_UNLOCKED)) return;
+  if (rideId) {
+    const ids = readIds();
+    if (ids.includes(rideId)) return;
+    ids.push(rideId);
+    write(KEY_COUNTED, JSON.stringify(ids.slice(-COUNTED_MAX)));
+  }
   write(KEY_DONE, String(readInt(KEY_DONE) + 1));
 }
 
@@ -113,4 +136,5 @@ export function resetQuota(): void {
   write(KEY_DONE, '0');
   write(KEY_LATER, '0');
   write(KEY_UNLOCKED, '0');
+  write(KEY_COUNTED, '[]');
 }

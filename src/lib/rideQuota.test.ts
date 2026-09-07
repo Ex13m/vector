@@ -101,6 +101,33 @@ describe('покупка', () => {
   });
 });
 
+describe('защита от двойного счёта по id поездки', () => {
+  test('одна и та же поездка, завершённая дважды, считается один раз', () => {
+    countFinishedRide('trip-1');
+    countFinishedRide('trip-1');
+    countFinishedRide('trip-1');
+    expect(quotaState().ridesDone).toBe(1);
+  });
+
+  test('разные поездки считаются отдельно', () => {
+    countFinishedRide('trip-1');
+    countFinishedRide('trip-2');
+    expect(quotaState().ridesDone).toBe(2);
+  });
+
+  test('поездка без id считается как обычно', () => {
+    countFinishedRide();
+    countFinishedRide();
+    expect(quotaState().ridesDone).toBe(2);
+  });
+
+  test('битый список id не ломает счёт', () => {
+    localStorage.setItem('vector.quota.countedIds', 'не json');
+    countFinishedRide('trip-9');
+    expect(quotaState().ridesDone).toBe(1);
+  });
+});
+
 describe('устойчивость к мусору в хранилище', () => {
   test('битое значение счётчика читается как ноль, а не ломает старт поездки', () => {
     localStorage.setItem('vector.quota.ridesDone', 'сломано');

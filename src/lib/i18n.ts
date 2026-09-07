@@ -140,6 +140,11 @@ const T: Record<string, Tr> = {
   'paywall.later': { ru: 'Позже — ещё {n} поездки', en: 'Later — {n} more rides', de: 'Später — {n} weitere Fahrten' },
   'paywall.working': { ru: 'Google Play…', en: 'Google Play…', de: 'Google Play…' },
   'paywall.restore': { ru: 'Уже покупали? Восстановить', en: 'Already bought? Restore', de: 'Schon gekauft? Wiederherstellen' },
+  'paywall.noPurchase': {
+    ru: 'Покупка на этом аккаунте Google не найдена.',
+    en: 'No purchase found on this Google account.',
+    de: 'Auf diesem Google-Konto wurde kein Kauf gefunden.',
+  },
   'paywall.oneTime': {
     ru: 'Разовая покупка. Восстанавливается при переустановке.',
     en: 'One-time purchase. Restored when you reinstall.',
