@@ -1,5 +1,8 @@
 [build]
-  command = "npm run build"
+  # build:site = сборка приложения + докладка web/ (лендинг, политика, промо).
+  # Эти файлы намеренно не лежат в public/: оттуда они попадали внутрь APK и
+  # раздували его на 15 МБ, хотя нужны только сайту. См. scripts/copy-web.mjs.
+  command = "npm run build:site"
   publish = "dist"
 
 [build.environment]

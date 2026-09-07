@@ -10,7 +10,8 @@
     "preview": "vite preview --port 5173",
     "lint": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:site": "npm run build && node scripts/copy-web.mjs"
   },
   "dependencies": {
     "@capacitor-community/text-to-speech": "^8.0.0",
