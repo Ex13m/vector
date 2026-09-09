@@ -59,7 +59,6 @@ type Props = {
   savedSession: RideSession | null;
   onSettings: () => void;
   onSettingsChange: (patch: Partial<Settings>) => void;
-  onExit: () => void;
   onJournal: () => void;
   /** Continuation: «Новая цель» — передаёт трек + статистику + id/имя поездки */
   onContinuePick: (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[], tripId: string | null, tripName: string) => void;
@@ -91,7 +90,6 @@ export default function RideScreen({
   savedSession,
   onSettings,
   onSettingsChange,
-  onExit,
   onJournal,
   onContinuePick,
   onContinueHome,
@@ -137,7 +135,7 @@ export default function RideScreen({
   useEffect(() => { intervalSecRef.current = settings.intervalSec; }, [settings.intervalSec]);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [arrived, setArrived] = useState(false);
-  const [tripName, setTripName] = useState(continuationTripName ?? '');
+  const [tripName, setTripName] = useState(savedSession?.tripName ?? continuationTripName ?? '');
   // Зеркало имени в ref — persistTrip перезаписывает ту же поездку (продолжение
   // после «мягкого» прибытия), сохраняя имя/переименование между вызовами.
   const tripNameRef = useRef('');
@@ -204,7 +202,10 @@ export default function RideScreen({
   const lastClockRef = useRef<number | null>(null);
   // При продолжении наследуем id исходной поездки → persistTrip перезапишет
   // ту же запись (один растущий трек), а не создаст вторую.
-  const savedTripIdRef = useRef<string | null>(continuationTripId);
+  // id записи в журнале переживает убийство процесса: без него восстановленная
+  // поездка чеканила ВТОРОЙ id — в журнале появлялся дубль того же маршрута, а
+  // счётчик списывал вторую бесплатную поездку за одну физическую.
+  const savedTripIdRef = useRef<string | null>(savedSession?.tripId ?? continuationTripId);
   const frozenEtaRef = useRef<number | null>(null);
 
   const arrivedRef = useRef(false);
@@ -501,6 +502,8 @@ export default function RideScreen({
               machineState: machineRef.current,
               ridePhase: s.ridePhase,
               speedMaxMps: speedMaxRef.current,
+              tripId: savedTripIdRef.current,
+              tripName: tripNameRef.current || null,
               startedAt: startedAtRef.current,
               savedAt: now,
             });
@@ -562,6 +565,8 @@ export default function RideScreen({
         machineState: machineRef.current,
         ridePhase: s.ridePhase,
         speedMaxMps: speedMaxRef.current,
+        tripId: savedTripIdRef.current,
+        tripName: tripNameRef.current || null,
         startedAt: startedAtRef.current,
         savedAt: Date.now(),
       });
@@ -1228,7 +1233,10 @@ export default function RideScreen({
     const trip: Trip = {
       id,
       name,
-      startedAt: startedAtRef.current,
+      // Время выезда берём из первой точки трека: она переезжает из сегмента в
+      // сегмент, а startedAtRef у каждого продолжения свой — из-за этого в
+      // выгруженном GPX стояло время последнего участка, а не реального старта.
+      startedAt: trailRef.current[0]?.t ?? startedAtRef.current,
       finishedAt: Date.now(),
       distM: Math.round(ridden),
       elapsedSec: Math.round(time),
@@ -1244,11 +1252,48 @@ export default function RideScreen({
     void saveTripLog(id, getDiagTextSince(startedAtRef.current, name));
   }, [ridden, avgMps, reverse, target, time]);
 
-  // ── Auto-save поездки при arrived (один раз).
+  // ── Auto-save поездки при arrived — РОВНО один раз.
+  // persistTrip пересоздаётся на каждом тике времени, поэтому эффект с ним в
+  // зависимостях перезаписывал в IndexedDB весь трек примерно раз в секунду всё
+  // время, пока открыт экран прибытия (это минуты). Замок оставляет одну
+  // запись и снимается, если прибытие отменилось и поездка продолжилась.
+  const arrivedSavedRef = useRef(false);
   useEffect(() => {
-    if (!arrived) return;
+    if (!arrived) {
+      arrivedSavedRef.current = false;
+      return;
+    }
+    if (arrivedSavedRef.current) return;
+    arrivedSavedRef.current = true;
     persistTrip();
   }, [arrived, persistTrip]);
+
+  /**
+   * Единственное место, где поездка действительно закончена: «Новая цель» и
+   * «Вернуться» продолжают ту же и сюда не идут.
+   *
+   * Вызывается и кнопкой «Завершить», и системной кнопкой «Назад» на экране
+   * прибытия — раньше «Назад» сохраняла поездку мимо счётчика, и так можно
+   * было ездить бесплатно сколько угодно, ни разу не увидев экран покупки.
+   */
+  const finishRide = useCallback(() => {
+    // КРИТИЧНО: сохранить СИНХРОННО перед навигацией — onJournal() размонтирует
+    // экран раньше, чем успел бы сработать эффект, и трек терялся.
+    persistTrip();
+    // Считаем только то, что реально легло в журнал. Нажал «Старт», передумал,
+    // вышел — списывать бесплатную поездку не за что, показать всё равно нечего.
+    // Счёт по id записи: возобновление из журнала и повторное завершение той же
+    // поездки не съедают вторую поездку.
+    if (savedTripIdRef.current) countFinishedRide(savedTripIdRef.current);
+    clearRideSession(); // поездка завершена — резюм не предлагать
+    if (!arrivedRef.current) setArrived(true);
+    haptic('light', settings.haptics);
+    onJournal();
+  }, [persistTrip, settings.haptics, onJournal]);
+
+  // Ref, чтобы обработчик popstate не переподписывался на каждом тике времени.
+  const finishRideRef = useRef(finishRide);
+  finishRideRef.current = finishRide;
 
   // ── Rename trip on tripName change (debounce 400).
   useEffect(() => {
@@ -1519,7 +1564,7 @@ export default function RideScreen({
     }
     const onPop = () => {
       if (arrivedRef.current) {
-        onExit();
+        finishRideRef.current();
         return;
       }
       setShowQuitModal(true);
@@ -1531,7 +1576,7 @@ export default function RideScreen({
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [onExit]);
+  }, []);
 
   const sayNow = useCallback(() => {
     resumeWakeAudio();
@@ -2141,19 +2186,7 @@ export default function RideScreen({
           trail={trailRef.current}
           onFinish={() => {
             setShowQuitModal(false);
-            // КРИТИЧНО: сохранить СИНХРОННО перед навигацией. Раньше тут был
-            // triggerArrived() → setArrived (асинхронно) → эффект авто-сохранения,
-            // но onJournal() размонтировал экран раньше → трек терялся.
-            persistTrip();
-            // Единственное место, где поездка действительно закончена: «Новая
-            // цель» и «Вернуться» продолжают ту же. Считаем по id записи, чтобы
-            // возобновление из журнала и повторное завершение не съело вторую
-            // бесплатную поездку.
-            countFinishedRide(savedTripIdRef.current);
-            clearRideSession(); // поездка завершена — резюм не предлагать
-            if (!arrived) setArrived(true);
-            haptic('light', settings.haptics);
-            onJournal();
+            finishRide();
           }}
           onNewTarget={() => {
             setShowQuitModal(false);

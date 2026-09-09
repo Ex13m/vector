@@ -6,8 +6,9 @@
  */
 
 import { distanceM, type LatLng } from './geo';
-import type { TrailPoint } from './storage';
+import { saveTrip, type TrailPoint, type Trip } from './storage';
 import type { RidePhase, RideMachineState } from './rideStateMachine';
+import { t, uiLang } from './i18n';
 
 const SESSION_KEY = 'vector.rideSession.v1';
 
@@ -26,6 +27,15 @@ export type RideSession = {
   ridePhase: RidePhase;
   /** Макс скорость */
   speedMaxMps: number;
+  /**
+   * id и имя записи в журнале. Без них восстановленная после убийства поездка
+   * теряла свою личность: persistTrip чеканил ВТОРОЙ id, в журнале появлялся
+   * дубль того же маршрута, а countFinishedRide списывал вторую бесплатную
+   * поездку за одну физическую. Необязательные — сессии, записанные прошлой
+   * версией приложения, этих полей не содержат.
+   */
+  tripId?: string | null;
+  tripName?: string | null;
   /** Когда поездка стартовала */
   startedAt: number;
   /** Таймстамп последнего сохранения */
@@ -61,6 +71,51 @@ export function saveRideSession(session: RideSession): void {
   }
 }
 
+/**
+ * Дописать оборванную поездку в журнал.
+ *
+ * Сессию старше 6 часов резюмировать поздно, но раньше она просто удалялась —
+ * и человек, у которого система выгрузила приложение посреди двухчасовой
+ * поездки, наутро находил пустой журнал. Маршрут при этом лежал в localStorage
+ * целым. Теперь сохраняем его записью с finished: false: путь на месте,
+ * а предлагать продолжить такую старую поездку по-прежнему не будем.
+ */
+/** Формат даты в имени поездки — тот же, что у persistTrip. */
+const FMT: Intl.DateTimeFormatOptions = {
+  day: '2-digit',
+  month: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+};
+
+const dateLocale = () => (uiLang() === 'ru' ? 'ru-RU' : uiLang() === 'de' ? 'de-DE' : 'en-US');
+
+function archiveSession(session: RideSession): void {
+  const trail = Array.isArray(session.trail) ? session.trail : [];
+  if (trail.length < 2) return; // одна точка — показывать нечего
+  const { ridden } = seedRidden(trail, 0);
+  const elapsedSec = Math.max(0, Math.round(session.elapsedSec ?? 0));
+  // Время выезда — от первой точки трека, как и в persistTrip. session.startedAt
+  // у продолжения хранит начало ПОСЛЕДНЕГО сегмента, и запись в журнале (id тот
+  // же) получила бы время не того участка.
+  const startedAt = trail[0]?.t ?? session.startedAt;
+  const trip: Trip = {
+    id: session.tripId ?? String(startedAt),
+    name: session.tripName || `${t('trip.name')} ${new Date(startedAt).toLocaleString(dateLocale(), FMT)}`,
+    startedAt,
+    finishedAt: session.savedAt,
+    distM: Math.round(ridden),
+    elapsedSec,
+    speedAvgMps: elapsedSec > 0 ? ridden / elapsedSec : 0,
+    speedMaxMps: session.speedMaxMps ?? 0,
+    trail,
+    reverse: !!session.reverse,
+    finished: false,
+    target: session.target ?? null,
+  };
+  void saveTrip(trip);
+}
+
 /** Загрузить сохранённую сессию. null если нет или устарела (>6 часов). */
 export function loadRideSession(): RideSession | null {
   try {
@@ -69,6 +124,7 @@ export function loadRideSession(): RideSession | null {
     const session = JSON.parse(raw) as RideSession;
     // Не восстанавливаем сессии старше 6 часов
     if (Date.now() - session.savedAt > 6 * 60 * 60 * 1000) {
+      archiveSession(session); // резюмировать поздно, но путь не теряем
       clearRideSession();
       return null;
     }

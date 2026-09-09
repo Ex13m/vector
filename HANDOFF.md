@@ -123,3 +123,14 @@ cd android ; .\gradlew.bat bundleRelease   # → app/build/outputs/bundle/releas
 ```powershell
 python scripts/play-publish.py upload --aab <path.aab> --track internal --commit
 ```
+
+---
+
+## Проверка разработчика Android (сделано)
+
+С 30 сентября 2026 Google удаляет из Play приложения, не зарегистрировавшие имя пакета и ключ
+подписи. Проверяется в Play Console → **Проверка разработчика Android** → вкладка «Названия пакетов».
+
+`cz.konsalting.vektor` — **Зарегистрировано** с 22.07.2026, 2 ключа. Google подтянул данные из
+аккаунта сам, вручную ничего не вводилось. Через API этот раздел недоступен, только Console.
+Уведомление о требовании приходит во «Входящие» всем подряд, независимо от статуса.

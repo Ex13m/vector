@@ -6,6 +6,8 @@ import { listVoices, onVoicesReady, type VoiceLang } from '../lib/voice';
 import { getDiagText, clearDiag, diagCount } from '../lib/diag';
 import { exportTextFile } from '../lib/exportFile';
 import { t } from '../lib/i18n';
+import { quotaState } from '../lib/rideQuota';
+import { billingAvailable, getPrice, buyFullVersion, restorePurchase, onEntitlement } from '../lib/billing';
 
 type Props = {
   settings: Settings;
@@ -22,6 +24,25 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
   // после «Очистить» массив пустел, а на экране оставалось прежнее значение, и
   // кнопка выглядела нерабочей. Пока лист открыт, обновляем раз в секунду —
   // видно и очистку, и то, что запись продолжается.
+  // ── Статус полной версии.
+  // Покупку ведём отсюда напрямую, без экрана покупки: тот появляется только
+  // когда поездки кончились, и человеку, который просто хочет проверить или
+  // восстановить покупку, деваться было некуда.
+  const [quota, setQuota] = useState(() => quotaState());
+  const [price, setPrice] = useState<string | null>(null);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!billingAvailable()) return;
+    void getPrice().then((p) => setPrice(p?.formattedPrice ?? null));
+    // Исход оплаты приходит событием, а не ответом на purchase().
+    return onEntitlement(() => {
+      setQuota(quotaState());
+      setBuying(false);
+      setBuyError(null);
+    });
+  }, []);
+
   const [logCount, setLogCount] = useState<number>(() => diagCount());
   useEffect(() => {
     const id = setInterval(() => setLogCount(diagCount()), 1000);
@@ -240,6 +261,86 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
           </div>
         </Section>
 
+        {/* Статус версии — единственное место, где видно, куплена ли полная. */}
+        <Section>
+          <Label>{quota.unlocked ? tr('full.title') : tr('full.free')}</Label>
+          <div style={{ fontFamily: F_MONO, fontSize: 12, color: quota.unlocked ? C.ok : C.inkDim, marginTop: 6 }}>
+            {quota.unlocked
+              ? tr('full.active')
+              : !billingAvailable()
+                ? tr('full.unlimitedHere')
+                : tr('full.left')
+                    .replace('{n}', String(quota.ridesLeft))
+                    .replace('{m}', String(quota.limit))}
+          </div>
+          {!quota.unlocked && billingAvailable() && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                disabled={buying}
+                onClick={() => {
+                  setBuying(true);
+                  setBuyError(null);
+                  // Промис резолвится, когда окно Play ОТКРЫЛОСЬ, а не когда
+                  // оплачено, — и резолвится даже если открыть не удалось.
+                  // Без этого .then кнопка навсегда застревала в «Google Play…».
+                  void buyFullVersion()
+                    .then(() => setBuying(false))
+                    .catch((e: unknown) => {
+                      setBuying(false);
+                      setBuyError(String(e instanceof Error ? e.message : e));
+                    });
+                }}
+                style={{
+                  flex: 1,
+                  background: C.bg2,
+                  color: C.target,
+                  border: `1px solid ${C.line2}`,
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  fontFamily: F_MONO,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  opacity: buying ? 0.5 : 1,
+                }}
+              >
+                {buying ? tr('paywall.working') : price ? `${tr('paywall.buy')} — ${price}` : tr('paywall.buy')}
+              </button>
+              <button
+                disabled={buying}
+                onClick={() => {
+                  setBuying(true);
+                  setBuyError(null);
+                  void restorePurchase()
+                    .then((r) => {
+                      setBuying(false);
+                      setQuota(quotaState());
+                      if (!r.owned) setBuyError(tr('paywall.noPurchase'));
+                    })
+                    .catch((e: unknown) => {
+                      setBuying(false);
+                      setBuyError(String(e instanceof Error ? e.message : e));
+                    });
+                }}
+                style={{
+                  background: C.bg2,
+                  color: C.inkDim,
+                  border: `1px solid ${C.line2}`,
+                  borderRadius: 10,
+                  padding: '10px 14px',
+                  fontFamily: F_MONO,
+                  fontSize: 12,
+                  opacity: buying ? 0.5 : 1,
+                }}
+              >
+                {tr('paywall.restore')}
+              </button>
+            </div>
+          )}
+          {buyError && (
+            <div style={{ fontFamily: F_MONO, fontSize: 11, color: '#FF8A6B', marginTop: 8 }}>{buyError}</div>
+          )}
+        </Section>
+
         {/* Версия — чтобы сверять, какой билд сейчас загружен */}
         <div
           style={{
@@ -252,6 +353,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
           }}
         >
           Vector v{__APP_VERSION__}
+          {__NATIVE_VERSION__ ? ` \u00B7 Play ${__NATIVE_VERSION__}` : ''}
         </div>
       </div>
     </div>

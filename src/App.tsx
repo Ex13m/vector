@@ -15,14 +15,14 @@ import type { LngLatBox } from './lib/tiles';
 import type { VoiceLang } from './lib/voice';
 import { VOICE_INTERVAL_MAX, VOICE_INTERVAL_STEP, DEFAULT_VOICE_INTERVAL } from './lib/constants';
 import { initWakeAudio, resumeWakeAudio } from './lib/wakeAudio';
-import { loadRideSession, clearRideSession } from './lib/rideSession';
+import { loadRideSession, clearRideSession, type RideSession } from './lib/rideSession';
 import { dlog } from './lib/diag';
 import type { TrailPoint, Trip } from './lib/storage';
 import { setUiLang, t } from './lib/i18n';
 import { startHeading } from './lib/orientation';
 import Paywall from './components/Paywall';
 import { quotaState, useLater } from './lib/rideQuota';
-import { initBilling, getPrice, buyFullVersion, restorePurchase } from './lib/billing';
+import { initBilling, getPrice, buyFullVersion, restorePurchase, onEntitlement, billingAvailable } from './lib/billing';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
   ? lazy(() => import('./components/DevBar'))
@@ -94,12 +94,20 @@ export default function App() {
     dlog('APP', `mount lang=${loadSettings().lang} nav=${navigator.language}`);
   }, []);
 
-  // ── Восстановление активной поездки после убийства вкладки ОС.
-  const savedSession = useMemo(() => loadRideSession(), []);
-
-  const [screen, setScreen] = useState<Screen>(savedSession ? 'ride' : 'pick');
+  // Настройки читаем ПЕРВЫМИ и сразу ставим язык: loadRideSession() ниже может
+  // дописать оборванную поездку в журнал, а её имя берётся из словаря — при
+  // обратном порядке англичанин получал запись с русским названием.
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   setUiLang(settings.lang); // текущий язык UI для t() — каждый рендер, до рендера детей
+
+  // ── Восстановление активной поездки после убийства вкладки ОС.
+  // Состояние, а НЕ useMemo: сохранённая сессия обязана умирать вместе с
+  // поездкой. Раньше она читалась один раз за запуск и подставлялась в КАЖДЫЙ
+  // следующий монтаж экрана поездки — новая поездка стартовала с треком,
+  // временем и фазой предыдущей, минуя PRE_RIDE целиком.
+  const [savedSession, setSavedSession] = useState<RideSession | null>(() => loadRideSession());
+
+  const [screen, setScreen] = useState<Screen>(savedSession ? 'ride' : 'pick');
   const [target, setTarget] = useState<LatLng | null>(savedSession?.target ?? null);
   const [targetName, setTargetName] = useState<string | null>(savedSession?.targetName ?? null);
   const [reverse, setReverse] = useState(savedSession?.reverse ?? false);
@@ -168,6 +176,16 @@ export default function App() {
     return startHeading(() => {});
   }, [target, screen]);
 
+  /**
+   * Закрыть сохранённую сессию и в хранилище, и в памяти.
+   * Одного clearRideSession() мало: объект оставался жить в состоянии App и
+   * воскресал в следующей поездке.
+   */
+  const dropSavedSession = useCallback(() => {
+    clearRideSession();
+    setSavedSession(null);
+  }, []);
+
   // ── Платная версия ────────────────────────────────────────────────────
   // Ворота стоят ровно на «Старт →»: до этого момента приложение работает
   // полностью, ничего не урезано. Начатую поездку не прерываем никогда —
@@ -179,6 +197,8 @@ export default function App() {
   // Куда пользователь собирался, когда упёрся в лимит: после покупки или
   // «Позже» продолжаем ровно туда, а не выкидываем его на выбор цели заново.
   const pendingRide = useRef<[LatLng, string | null, LngLatBox] | null>(null);
+  /** То же для «Продолжить» из журнала — второй способ начать поездку. */
+  const pendingResume = useRef<Trip | null>(null);
 
   useEffect(() => {
     void initBilling().then((ok) => {
@@ -186,11 +206,45 @@ export default function App() {
     });
   }, []);
 
-  /** Пустить пользователя туда, куда он шёл до появления экрана покупки. */
+  /**
+   * Запустить поездку из журнала. Цель — старт трека (возврат), и НАСЛЕДУЕМ
+   * контекст поездки (id/дистанция/время/скорость), чтобы persistTrip
+   * перезаписал ТУ ЖЕ запись (один растущий трек), а не плодил новую, и чтобы
+   * ETA был верным (avgMps = ridden/time на согласованных итогах).
+   * Trip не хранит elapsedSec — реконструируем из distM/avgSpeed.
+   */
+  const startResumedTrip = useCallback((trip: Trip) => {
+    const trail = trip.trail;
+    const start = trail[0];
+    setTarget({ lat: start.lat, lng: start.lng });
+    setTargetName(t('target.start'));
+    setReverse(false);
+    setContTripId(trip.id);
+    setContTripName(trip.name);
+    setContRiddenM(trip.distM);
+    setContElapsedSec(trip.speedAvgMps > 0 ? Math.round(trip.distM / trip.speedAvgMps) : 0);
+    setContSpeedMax(trip.speedMaxMps);
+    setContWaypoints([]);
+    setResumeTrail(trail);
+    setScreen('ride');
+  }, []);
+
+  /**
+   * Пустить пользователя туда, куда он шёл до появления экрана покупки.
+   * Оба намерения снимаем СРАЗУ, до разбора веток: иначе невыполненное
+   * уезжает в следующий раз и человек попадает не туда, куда собирался.
+   */
   const resumePendingRide = useCallback(() => {
     setPaywall(false);
+    const trip = pendingResume.current;
     const args = pendingRide.current;
+    pendingResume.current = null;
     pendingRide.current = null;
+    if (trip) {
+      resumeWakeAudio();
+      startResumedTrip(trip);
+      return;
+    }
     if (!args) return;
     resumeWakeAudio();
     const [tg, name, box] = args;
@@ -200,11 +254,38 @@ export default function App() {
     setResumeTrail(contTrail ?? null);
     setPickBox(box);
     setScreen('cache');
-  }, [contTrail]);
+  }, [contTrail, startResumedTrip]);
+
+  /**
+   * Исход оплаты Play присылает СОБЫТИЕМ, а не ответом на purchase(): тот
+   * резолвится в момент открытия окна магазина, ещё до того как человек нажал
+   * «Оплатить». Без этой подписки экран покупки оставался висеть после
+   * успешной оплаты — человек платил и снова видел кнопку «Купить».
+   */
+  const paywallOpenRef = useRef(false);
+  paywallOpenRef.current = paywall;
+  useEffect(
+    () =>
+      onEntitlement((owned) => {
+        if (!owned || !paywallOpenRef.current) return;
+        setPaywallBusy(false);
+        setPaywallError(null);
+        resumePendingRide();
+      }),
+    [resumePendingRide],
+  );
 
   const goCache = useCallback((tg: LatLng, name: string | null, box: LngLatBox) => {
-    if (!quotaState().canRide) {
+    // Ворота лимита — только на НАСТОЯЩЕМ старте новой поездки и только там,
+    // где есть магазин.
+    //   • продолжение («Новая цель») лимит не тратит и упираться в экран
+    //     покупки посреди дороги не должно — это та же поездка;
+    //   • в вебе покупки не существует, поэтому ворота заперли бы человека
+    //     навсегда: купить нечего, восстановить нечего, «Позже» одноразовое.
+    const continuing = contTrail !== null || contTripId !== null;
+    if (billingAvailable() && !continuing && !quotaState().canRide) {
       pendingRide.current = [tg, name, box];
+      pendingResume.current = null; // новое намерение отменяет прежнее
       setPaywallError(null);
       setPaywall(true);
       return;
@@ -221,11 +302,11 @@ export default function App() {
     }
     setPickBox(box);
     setScreen('cache');
-  }, [contTrail]);
+  }, [contTrail, contTripId]);
 
   const goRide = useCallback(() => setScreen('ride'), []);
   const goPick = useCallback(() => {
-    clearRideSession();
+    dropSavedSession();
     setScreen('pick');
     setTarget(null);
     setTargetName(null);
@@ -238,9 +319,9 @@ export default function App() {
     setContWaypoints([]);
     setContTripId(null);
     setContTripName(null);
-  }, []);
+  }, [dropSavedSession]);
   const goPickJournal = useCallback(() => {
-    clearRideSession();
+    dropSavedSession();
     setOpenJournal(true);
     setScreen('pick');
     setTarget(null);
@@ -254,13 +335,13 @@ export default function App() {
     setContWaypoints([]);
     setContTripId(null);
     setContTripName(null);
-  }, []);
+  }, [dropSavedSession]);
 
   // ── Continuation: продолжение поездки с накопленным треком.
   // «Новая цель» — открывает PickScreen с треком на карте.
   const goContinuePick = useCallback(
     (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[], tripId: string | null, tripName: string) => {
-      clearRideSession();
+      dropSavedSession();
       setContTrail(trail);
       setContRiddenM(riddenM);
       setContElapsedSec(elapsedSec);
@@ -274,13 +355,17 @@ export default function App() {
       setReverse(false);
       setScreen('pick');
     },
-    [],
+    [dropSavedSession],
   );
 
   // «Вернуться к старту» — цель = trail[0], через Cache → PRE_RIDE.
   const goContinueHome = useCallback(
     (trail: TrailPoint[], riddenM: number, elapsedSec: number, speedMax: number, waypoints: LatLng[], tripId: string | null, tripName: string) => {
       if (trail.length === 0) return;
+      // Симметрично «Новой цели»: без этого убийство приложения на экране
+      // кэширования воскрешало СТАРУЮ сессию, и приложение вело к прежней
+      // цели вместо точки старта — команда «Вернуться» молча пропадала.
+      dropSavedSession();
       resumeWakeAudio();
       const start = trail[0];
       setTarget({ lat: start.lat, lng: start.lng });
@@ -303,31 +388,28 @@ export default function App() {
       });
       setScreen('cache');
     },
-    [],
+    [dropSavedSession],
   );
 
+  /**
+   * «Продолжить» у записи в журнале — второй вход в поездку, и он тоже обязан
+   * спрашивать про лимит. Журнал открывается сам после каждого финиша, так что
+   * без этой проверки достаточно было жать «Продолжить» — и приложение не
+   * просило денег никогда.
+   */
   const onResumeTrip = useCallback(
     (trip: Trip) => {
-      // Продолжение из списка «Поездки»: цель — старт трека (возврат), и
-      // НАСЛЕДУЕМ контекст поездки (id/дистанция/время/скорость), чтобы
-      // persistTrip перезаписал ТУ ЖЕ запись (один растущий трек), а не плодил
-      // новую, и чтобы ETA был верным (avgMps = ridden/time на согласованных
-      // итогах). Trip не хранит elapsedSec — реконструируем из distM/avgSpeed.
-      const trail = trip.trail;
-      const start = trail[0];
-      setTarget({ lat: start.lat, lng: start.lng });
-      setTargetName(t('target.start'));
-      setReverse(false);
-      setContTripId(trip.id);
-      setContTripName(trip.name);
-      setContRiddenM(trip.distM);
-      setContElapsedSec(trip.speedAvgMps > 0 ? Math.round(trip.distM / trip.speedAvgMps) : 0);
-      setContSpeedMax(trip.speedMaxMps);
-      setContWaypoints([]);
-      setResumeTrail(trail);
-      setScreen('ride');
+      if (!trip.trail || trip.trail.length === 0) return;
+      if (billingAvailable() && !quotaState().canRide) {
+        pendingResume.current = trip;
+        pendingRide.current = null; // новое намерение отменяет прежнее
+        setPaywallError(null);
+        setPaywall(true);
+        return;
+      }
+      startResumedTrip(trip);
     },
-    [],
+    [startResumedTrip],
   );
 
   const body = useMemo(() => {
@@ -340,7 +422,11 @@ export default function App() {
           box={pickBox}
           onSkip={goRide}
           onDone={goRide}
-          onBack={() => setScreen('pick')}
+          // Полный сброс, а не просто смена экрана: иначе унаследованные
+          // id/дистанция/время продолжения утекали в следующую поездку, и она
+          // перезаписывала чужую запись в журнале обрезанным треком. Терять
+          // нечего — «Вернуться» и «Новая цель» сохраняют поездку до перехода.
+          onBack={goPick}
           continuationTrail={contTrail ?? resumeTrail}
         />
       );
@@ -356,7 +442,6 @@ export default function App() {
           savedSession={savedSession}
           onSettings={() => setShowSettings(true)}
           onSettingsChange={updateSettings}
-          onExit={goPick}
           onJournal={goPickJournal}
           onContinuePick={goContinuePick}
           onContinueHome={goContinueHome}
@@ -382,7 +467,7 @@ export default function App() {
         continuationWaypoints={contWaypoints}
       />
     );
-  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, contTrail, contWaypoints, contRiddenM, contElapsedSec, contSpeedMax, contTripId, contTripName, goCache, goRide, goPick, goPickJournal, goContinuePick, goContinueHome, onResumeTrip, updateSettings]);
+  }, [screen, settings, target, targetName, reverse, resumeTrail, pickBox, openJournal, contTrail, contWaypoints, contRiddenM, contElapsedSec, contSpeedMax, contTripId, contTripName, goCache, goRide, goPick, goPickJournal, goContinuePick, goContinueHome, onResumeTrip, updateSettings, savedSession]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -429,7 +514,15 @@ export default function App() {
               });
           }}
           onLater={quotaState().laterAvailable ? () => { useLater(); resumePendingRide(); } : null}
-          onClose={() => { setPaywall(false); pendingRide.current = null; }}
+          onClose={() => {
+            // Гасим ОБА намерения. Пока «Продолжить» из журнала оставалось
+            // жить, следующая покупка (или одноразовое «Позже») увозила
+            // человека к старой поездке вместо выбранной им цели, да ещё и
+            // дописывала трек в чужую запись журнала.
+            setPaywall(false);
+            pendingRide.current = null;
+            pendingResume.current = null;
+          }}
         />
       )}
       {needRefresh && <UpdateToast onApply={() => updateServiceWorker(true)} />}

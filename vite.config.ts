@@ -2,7 +2,19 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'node:fs';
 import { version } from './package.json';
+
+// Версия нативной обёртки — та, что видно в Google Play. Читаем из build.gradle,
+// чтобы в настройках стояли обе: они разные (веб 0.6.0 при Play 1.0.5), и это
+// уже приводило к «почему в маркете одно, а в приложении другое».
+const nativeVersion = (() => {
+  try {
+    return /versionName\s+"([^"]+)"/.exec(readFileSync('android/app/build.gradle', 'utf8'))?.[1] ?? '';
+  } catch {
+    return '';
+  }
+})();
 
 export default defineConfig({
   plugins: [
@@ -71,6 +83,7 @@ export default defineConfig({
   ],
   define: {
     __APP_VERSION__: JSON.stringify(version),
+    __NATIVE_VERSION__: JSON.stringify(nativeVersion),
   },
   build: {
     rollupOptions: {

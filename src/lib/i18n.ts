@@ -150,6 +150,22 @@ const T: Record<string, Tr> = {
     en: 'One-time purchase. Restored when you reinstall.',
     de: 'Einmalkauf. Wird bei Neuinstallation wiederhergestellt.',
   },
+  'paywall.webOnly': {
+    ru: 'Покупка доступна только в приложении из Google Play.',
+    en: 'Purchases are only available in the app from Google Play.',
+    de: 'Käufe sind nur in der App aus Google Play möglich.',
+  },
+
+  // ── Статус версии в настройках ────────────────────────
+  'full.title':  { ru: 'Полная версия', en: 'Full version', de: 'Vollversion' },
+  'full.active': { ru: 'Активна — поездки без ограничений', en: 'Active — unlimited rides', de: 'Aktiv — unbegrenzte Fahrten' },
+  'full.free':   { ru: 'Бесплатная версия', en: 'Free version', de: 'Kostenlose Version' },
+  'full.left':   { ru: 'Осталось поездок: {n} из {m}', en: 'Rides left: {n} of {m}', de: 'Verbleibende Fahrten: {n} von {m}' },
+  'full.unlimitedHere': {
+    ru: 'В браузере поездки не ограничены',
+    en: 'Rides are unlimited in the browser',
+    de: 'Im Browser sind Fahrten unbegrenzt',
+  },
 
   // ── Обновление PWA ────────────────────────────────────
   'update.available': { ru: 'Доступно обновление', en: 'Update available', de: 'Update verfügbar' },
@@ -175,6 +191,9 @@ let _lang: UiLang = 'ru';
 
 /** Установить текущий язык интерфейса. Вызывать из App на каждом рендере. */
 export function setUiLang(lang: UiLang): void { _lang = lang; }
+
+/** Текущий язык — нужен там, где локаль даты берётся вне React (rideSession). */
+export function uiLang(): UiLang { return _lang; }
 
 /** Перевод UI-строки по ключу. Нет ключа → сам ключ (без краша). */
 export function t(key: string): string {

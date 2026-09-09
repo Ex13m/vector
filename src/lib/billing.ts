@@ -14,6 +14,7 @@
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { setUnlocked } from './rideQuota';
 import { dlog } from './diag';
+import { t } from './i18n';
 
 /** ID товара в Play Console. Изменить его после создания нельзя. */
 export const PRODUCT_ID = 'vektor_full_unlock';
@@ -48,6 +49,29 @@ const Billing = registerPlugin<BillingPluginApi>('Billing');
 
 const native = () => Capacitor.isNativePlatform();
 
+/** Есть ли вообще магазин. В вебе покупки не существует — там всё бесплатно. */
+export const billingAvailable = (): boolean => native();
+
+/**
+ * Подписчики на изменение владения.
+ *
+ * Play сообщает исход оплаты СОБЫТИЕМ, а не ответом на вызов purchase():
+ * тот резолвится в момент открытия окна магазина, до того как человек нажал
+ * «Оплатить». Без этой подписки React не узнаёт о покупке никогда — экран
+ * покупки остаётся висеть после успешной оплаты, и человек нажимает «Купить»
+ * второй раз.
+ */
+type EntitlementCb = (owned: boolean) => void;
+const watchers = new Set<EntitlementCb>();
+
+/** Подписаться на владение. Возвращает функцию отписки. */
+export function onEntitlement(cb: EntitlementCb): () => void {
+  watchers.add(cb);
+  return () => {
+    watchers.delete(cb);
+  };
+}
+
 let ready = false;
 
 /**
@@ -62,6 +86,13 @@ export async function initBilling(): Promise<boolean> {
       // Доступ выдаём только по подтверждённой покупке. PENDING — оплата ещё
       // не прошла (например, наличными в терминале), доступа быть не должно.
       setUnlocked(e.owned);
+      watchers.forEach((w) => {
+        try {
+          w(e.owned);
+        } catch {
+          // один сломанный подписчик не должен ронять остальных
+        }
+      });
     });
     await Billing.addListener('billingError', (e) => {
       dlog('BILL', `error ${e.code}: ${e.message}`);
@@ -92,7 +123,9 @@ export async function getPrice(): Promise<ProductInfo | null> {
  * событием entitlementChanged, которое само обновит состояние квоты.
  */
 export async function buyFullVersion(): Promise<void> {
-  if (!native()) throw new Error('Покупка доступна только в приложении из Google Play');
+  // Текст пойдёт человеку на экран, поэтому берём из словаря, а не хардкодим
+  // по-русски: в вебе приложение так же говорит по-английски и по-немецки.
+  if (!native()) throw new Error(t('paywall.webOnly'));
   await Billing.purchase({ productId: PRODUCT_ID });
 }
 
