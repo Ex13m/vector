@@ -12,6 +12,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(BatteryOptimizationPlugin.class);
         // Покупка полной версии — Google Play Billing без серверной части.
         registerPlugin(BillingPlugin.class);
+        // Мягкое обновление приложения из Play, не выходя в маркет.
+        registerPlugin(AppUpdatePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

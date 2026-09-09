@@ -169,6 +169,8 @@ const T: Record<string, Tr> = {
 
   // ── Обновление PWA ────────────────────────────────────
   'update.available': { ru: 'Доступно обновление', en: 'Update available', de: 'Update verfügbar' },
+  'update.ready':   { ru: 'Обновление готово', en: 'Update ready', de: 'Update bereit' },
+  'update.restart': { ru: 'Перезапустить',     en: 'Restart',      de: 'Neu starten' },
   'update.apply':     { ru: 'ОБНОВИТЬ',            en: 'UPDATE',           de: 'AKTUALISIEREN' },
 
   // ── Журнал ────────────────────────────────────────────

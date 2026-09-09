@@ -1,7 +1,19 @@
 import { C, F_MONO } from '../theme';
 import { t } from '../lib/i18n';
 
-export default function UpdateToast({ onApply }: { onApply: () => void }) {
+/**
+ * Полоска «есть обновление». Используется дважды с разным текстом: для веб-части
+ * (новый service worker) и для мягкого обновления приложения из Google Play.
+ */
+export default function UpdateToast({
+  onApply,
+  labelKey = 'update.available',
+  actionKey = 'update.apply',
+}: {
+  onApply: () => void;
+  labelKey?: string;
+  actionKey?: string;
+}) {
   return (
     <div
       role="status"
@@ -27,7 +39,7 @@ export default function UpdateToast({ onApply }: { onApply: () => void }) {
         animation: 'fadeUp 240ms ease',
       }}
     >
-      <span style={{ textTransform: 'uppercase' }}>{t('update.available')}</span>
+      <span style={{ textTransform: 'uppercase' }}>{t(labelKey)}</span>
       <button
         onClick={onApply}
         style={{
@@ -42,7 +54,7 @@ export default function UpdateToast({ onApply }: { onApply: () => void }) {
           borderRadius: 8,
         }}
       >
-        {t('update.apply')}
+        {t(actionKey)}
       </button>
     </div>
   );

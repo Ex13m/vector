@@ -23,6 +23,7 @@ import { startHeading } from './lib/orientation';
 import Paywall from './components/Paywall';
 import { quotaState, useLater } from './lib/rideQuota';
 import { initBilling, getPrice, buyFullVersion, restorePurchase, onEntitlement, billingAvailable } from './lib/billing';
+import { watchAppUpdate, applyAppUpdate } from './lib/appUpdate';
 
 const DevBar = import.meta.env.DEV  /* tree-shaken in prod */
   ? lazy(() => import('./components/DevBar'))
@@ -205,6 +206,14 @@ export default function App() {
       if (ok) void getPrice().then((p) => setPrice(p?.formattedPrice ?? null));
     });
   }, []);
+
+  // ── Мягкое обновление из Play.
+  // Проверяем один раз при запуске: Play качает новую версию в фоне, человек
+  // продолжает пользоваться, и только когда файл готов — снизу появляется
+  // полоска «Перезапустить». Жёсткий режим сознательно не используем: он
+  // запирает человека в экране прогресса, а тот может стоять на перекрёстке.
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => watchAppUpdate(() => setUpdateReady(true)), []);
 
   /**
    * Запустить поездку из журнала. Цель — старт трека (возврат), и НАСЛЕДУЕМ
@@ -526,6 +535,14 @@ export default function App() {
         />
       )}
       {needRefresh && <UpdateToast onApply={() => updateServiceWorker(true)} />}
+      {/* Перезапуск посреди поездки недопустим — предлагаем только вне неё. */}
+      {updateReady && screen !== 'ride' && (
+        <UpdateToast
+          onApply={() => void applyAppUpdate()}
+          labelKey="update.ready"
+          actionKey="update.restart"
+        />
+      )}
       <InstallPrompt />
       {DevBar && <Suspense fallback={null}><DevBar /></Suspense>}
     </div>
