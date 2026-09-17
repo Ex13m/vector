@@ -39,53 +39,121 @@ DL = r"C:\Users\User\Downloads"
 
 # ── Тексты витрины (источник: docs/PLAY-LISTING.md §1) ───────────────────────
 LISTINGS = {
-    "en-US": {
-        "title": "Vector — cycling beacon",
-        "shortDescription":
-            "Voice compass for cyclists: \u201ctarget at 3 o\u2019clock, 8 km\u201d. Screen-off friendly.",
-        "fullDescription": """Vector is not a turn-by-turn navigator. It's a beacon.
+    'en-US': {
+        "title": 'Bike Compass GPS: Vector',
+        "shortDescription": 'Voice compass navigation for cycling. Screen off, offline maps, GPS on.',
+        "fullDescription": """Vector is a bike compass with a voice, not a turn-by-turn navigator. Drop a waypoint on the map, lock the phone, put it in your pocket and ride. Every few minutes a voice tells you where the target is, clock-style: "target at 3 o'clock, 8 kilometers", followed by an estimate of the time left.
 
-Pick a target on the map, put the phone in your pocket and ride. Vector speaks the direction clock-style — “target at 3 o'clock, 8 kilometres” — so YOU choose the route: side streets, parks, gravel. The app just keeps you pointed the right way.
+Two o'clock means bear right. Twelve means straight on. Six means you are riding away from it. That is the whole interface: compass navigation, spoken out loud, at an interval you choose. All it needs is your phone's GPS. Stop drawing, start talking.
 
-• Works with the SCREEN OFF — voice guidance continues from your pocket
-• Clock-face directions + distance + ETA, at your chosen interval
-• Announces when you turn away from the target
-• Aiming mode: rotate the phone, hear “target ahead”, and go
-• Offline maps: cache the area along the route in advance
-• Ride log with track, distance, time; GPX export to Strava & friends
-• Continue a trip, ride back to the start, chain new targets
-• Russian, English, German voice and interface
-• No accounts, no ads, no tracking — your data stays on your device
+<b>Compass navigation for cycling, not turn-by-turn</b>
+Vector takes your position and heading from GPS and gives you the bearing: the straight-line direction to your waypoint, as the crow flies. Alleys, park paths, gravel tracks: take any of them and the voice keeps pointing at the target from wherever you end up. A dead-end courtyard costs you nothing, because there is no route to break and nothing to recalculate. Head away from the target for too long and the app says so.
 
-Two ways to use it. Ride TO something — a lake, a viewpoint, a town on the horizon. Or drop the target on the spot you started from — the car, the camp, the hut — and just wander: Vector keeps telling you how far away you have drifted and which way leads back. Handy in the forest, on fishing trips, anywhere it is easy to lose your bearings.
+<b>Why the screen stays off</b>
+Riding with the screen off is the point of this app, not a side effect. Voice navigation from a pocket means the display stays dark and no map is being redrawn; a phone that is not lighting a screen for hours is simply doing less work. Your eyes stay on the traffic and on the surface in front of you, where a cyclist needs them.
 
-Background location is used only during an active ride to keep the voice guidance running while the screen is off (a visible notification is shown).
+<b>A beacon on the point where you started</b>
+Set the waypoint on the spot you set off from and Vector becomes a way home. Park the bike or the car at the edge of an unfamiliar city and wander off. Leave a tent at a festival. Walk into the woods from a trailhead. However tangled the way out was, back to start is one direction and one distance, repeated as often as you ask. Cycling or hiking makes no difference to a bearing, so the same compass navigation walks you back to the camp, the trailhead, or the car in a big parking lot.
 
-Made for cyclists who want to explore, not follow arrows.""",
+<b>Offline maps</b>
+Before you leave, while you still have a connection, cache the map along your route: download the tiles once and ride the whole area with mobile data switched off. Useful abroad, in a forest, in a valley with no signal. The compass guidance never needed a connection anyway, since GPS works without mobile data; the offline map is there for when you do want to look at it.
+
+<b>Ride log and GPX export</b>
+- Every ride saved with its track, distance and time
+- Any ride exports as a GPX file, the standard format fitness apps and services read
+- Change the target while you are moving, or continue a ride you finished earlier
+- Aiming mode: hold the phone up, turn on the spot, stop when the target is ahead
+- A bearing works the same whether you ride or walk: cycling, gravel, hiking
+- English, Russian and German, both interface and voice
+
+<b>Five rides free, then one payment</b>
+The first five rides are free, and they are the whole app rather than a demo. After that Vector is a single purchase, at the price shown above in your own currency, and it stays yours. No subscription, no ads, no account, no registration. Change phones and it comes back under the same Google account.
+
+<b>Location and privacy</b>
+Vector needs location while a ride is running, including in the background, because without that permission Android stops delivering location updates the moment the screen goes dark, and a voice that keeps talking from your pocket is the one thing this app exists for. Nothing is uploaded anywhere. We run no server of our own, so your targets and your tracks stay on the phone.
+
+<b>What it is not</b>
+Vector will not read out street names or tell you to turn left in 200 meters, and it is not a calculator for measuring the straight-line distance between two points: it keeps telling you where that line points while you move. If you want a route computed for you, this is the wrong app.
+
+Set a target, pocket the phone, and choose your own way there.""",
     },
-    "ru-RU": {
-        "title": "Vector — вело-маяк",
-        "shortDescription":
-            "Голосовой компас велосипедиста: «цель на 3 часа, 8 км». Экран не нужен.",
-        "fullDescription": """Vector — это не пошаговый навигатор. Это маяк.
+    'ru-RU': {
+        "title": 'Компас для велосипеда: Vector',
+        "shortDescription": 'Голосовой компас для велосипеда: GPS-навигация, офлайн-карты, экран выключен.',
+        "fullDescription": """Vector — это компас с голосом, а не пошаговый навигатор. Поставьте точку на карте, заблокируйте телефон, уберите его в карман и поезжайте. Раз в несколько минут голос называет, где цель, по циферблату: «цель на 3 часа, 8 километров» — направление, расстояние и оценка оставшегося времени.
 
-Выбери цель на карте, убери телефон в карман и крути педали. Vector говорит направление «по часам» — «цель на 3 часа, 8 километров» — а маршрут выбираешь ТЫ: дворы, парки, грунтовки. Приложение просто держит тебя на курсе.
+Два часа — принять правее. Двенадцать — прямо. Шесть — вы едете от цели. В этом весь интерфейс: голосовая навигация по компасу, с интервалом, который вы выбираете сами. Нужен только GPS телефона.
 
-• Работает с ВЫКЛЮЧЕННЫМ экраном — голос ведёт из кармана
-• Направление по циферблату + дистанция + время в пути, интервал настраивается
-• Подсказка, если отвернул от цели
-• Режим наведения: крути телефон — «цель впереди» — и поехали
-• Офлайн-карты: закэшируй область маршрута заранее
-• Журнал поездок с треком, дистанцией, временем; экспорт GPX (Strava и др.)
-• Продолжение поездки, возврат к старту, цепочки целей
-• Русский, английский, немецкий — голос и интерфейс
-• Без аккаунтов, рекламы и слежки — данные остаются на устройстве
+<b>Компас вместо маршрута</b>
+Vector берёт из GPS вашу позицию и курс и называет азимут — направление на цель по прямой. Дворы, парковые дорожки, грунтовка: сворачивайте куда угодно, голос всё равно будет показывать на цель из той точки, где вы оказались. Тупик во дворе ничего не стоит: ломать нечего и пересчитывать нечего, маршрута просто нет. Такой велонавигатор ничего вам не прокладывает — он держит направление. А если вы долго едете в сторону от цели, приложение об этом скажет.
 
-Два сценария. Первый — ехать к цели: озеро, смотровая, город на горизонте. Второй — поставить цель на месте старта (машина, лагерь, домик) и просто гулять: Vector всё время говорит, насколько ты удалился и в какой стороне обратный путь. Удобно в лесу, на рыбалке и там, где легко потерять направление.
+<b>Почему экран выключен</b>
+Ехать с погасшим экраном — это и есть смысл приложения, а не побочный режим. Голос из кармана значит, что дисплей не горит и карта не перерисовывается: телефон, который часами не светит экраном, просто делает меньше работы. А глаза остаются на дороге и на покрытии перед колесом — там, где они нужны велосипедисту.
 
-Фоновая геолокация используется только во время активной поездки, чтобы голос не прерывался при выключенном экране (показывается уведомление).
+<b>Маяк на точке старта: вернуться к старту</b>
+Поставьте цель там, откуда вы стартовали, и Vector станет маяком домой. Оставили велосипед или машину на краю незнакомого города и ушли гулять. Палатка на фестивале. Тропа, с которой вы свернули в лес. Как бы ни петляла дорога обратно, до старта — одно направление и одно расстояние, повторяемые так часто, как попросите. Азимуту всё равно, едете вы или идёте пешком, так что тот же компас выведет обратно к лагерю, к тропе или к машине на большой парковке.
 
-Для тех, кто хочет исследовать, а не ехать по стрелкам.""",
+<b>Офлайн-карты</b>
+Пока связь ещё есть, закэшируйте карту вдоль маршрута: тайлы скачиваются один раз, дальше можно ехать по всей области с выключенным мобильным интернетом. Полезно за границей, в лесу, в низине без сигнала. Голосовой навигации связь не нужна была и так — GPS работает без интернета; офлайн карты нужны на тот случай, когда вы всё-таки захотите посмотреть на экран.
+
+<b>Журнал поездок и выгрузка GPX</b>
+- Каждая поездка сохраняется с треком, дистанцией и временем
+- Любую поездку можно выгрузить файлом GPX — это стандартный формат, его читают спортивные приложения и сервисы
+- Цель можно менять на ходу, а завершённую поездку — продолжить
+- Режим наведения: поднимите телефон, повернитесь на месте и остановитесь, когда услышите, что цель впереди
+- Азимуту всё равно, едете вы или идёте: город, гравий, лес
+- Три языка интерфейса и голоса: русский, английский, немецкий
+
+<b>Пять поездок бесплатно, дальше разовая покупка</b>
+Первые пять поездок бесплатны, и это всё приложение целиком, а не демо. Дальше Vector покупается один раз и навсегда — цену магазин показывает выше, в вашей валюте. Без подписки, без рекламы, без аккаунта и регистрации. Смените телефон — покупка вернётся под тем же аккаунтом Google.
+
+<b>Геолокация и приватность</b>
+Vector нужна геолокация во время поездки, в том числе в фоне: без этого разрешения Android перестаёт отдавать координаты, как только гаснет экран, а голос, который продолжает вести из кармана, — ровно то, ради чего приложение и сделано. Никуда ничего не отправляется. Своего сервера у нас нет вообще, поэтому цели и треки остаются на телефоне.
+
+<b>Чего Vector не делает</b>
+Он не читает названия улиц и не говорит «через 200 метров направо». И это не калькулятор, который считает расстояние по прямой между двумя точками: Vector не считает прямую, а ведёт по ней, пока вы едете. Если вам нужен проложенный маршрут — это другое приложение.
+
+Поставьте цель, уберите телефон в карман и выбирайте дорогу сами.""",
+    },
+    'de-DE': {
+        "title": 'Luftlinie Kompass: Vector',
+        "shortDescription": 'Fahrrad-Navigation per Sprache: Luftlinie zum Ziel, Display aus, offline.',
+        "fullDescription": """Vector ist ein Fahrrad-Kompass mit Stimme, kein Turn-by-Turn-Navi. Ziel auf der Karte setzen, Handy sperren, in die Tasche stecken, losfahren. Alle paar Minuten sagt eine Stimme nach Uhrzeit, wo das Ziel liegt: „Ziel auf 3 Uhr, 8 Kilometer“, dazu die geschätzte Restzeit.
+
+Eines gleich vorweg: Vector ist kein Luftlinien-Rechner. Vector misst nicht den Abstand zwischen zwei Punkten auf der Karte, Vector führt dich per Luftlinie, gesprochen, während du fährst. Eine Richtung, eine Entfernung, so oft du willst, bis du da bist.
+
+2 Uhr heißt rechts halten. 12 Uhr heißt geradeaus. 6 Uhr heißt, du fährst vom Ziel weg. Mehr Oberfläche gibt es nicht: Kompass-Navigation als Sprachnavigation, im Intervall deiner Wahl. Es braucht nur das GPS deines Handys.
+
+<b>Navigation per Luftlinie, nicht Turn-by-Turn</b>
+Vector nimmt Position und Fahrtrichtung vom GPS und gibt dir die Peilung: die Richtung zum Ziel in Luftlinie. Hinterhöfe, Parkwege, Feldwege: Die Stimme zeigt von jedem Punkt aus wieder aufs Ziel. Eine Sackgasse kostet nichts, weil es keine Route gibt, die kaputtgehen kann. Wer zu lange vom Ziel weg fährt, bekommt es gesagt.
+
+<b>Warum das Display aus bleibt</b>
+Fahrradfahren mit ausgeschaltetem Display ist der Sinn dieser App, kein Nebeneffekt. Sprachnavigation aus der Tasche heißt: Der Bildschirm bleibt dunkel, es wird keine Karte gezeichnet. Ein Handy, das stundenlang kein Display beleuchtet, hat schlicht weniger zu tun. Deine Augen bleiben auf dem Verkehr und dem Belag vor dir.
+
+<b>Zurück zum Start</b>
+Setz das Ziel auf den Punkt, an dem du losgefahren bist, und Vector wird zur Peilung nach Hause. Das Fahrrad am Rand einer fremden Stadt abstellen, das Zelt auf dem Festival stehen lassen, vom Wanderparkplatz in den Wald gehen. Egal wie verwinkelt der Hinweg war: Zurück zum Start ist eine Richtung und eine Entfernung, so oft angesagt, wie du möchtest. Ob du fährst oder gehst, ist der Peilung egal: Derselbe Kompass bringt dich zum Zeltplatz oder zum Auto auf dem großen Parkplatz zurück.
+
+<b>Offline-Karten</b>
+Vor der Tour, solange du Empfang hast, den Bereich entlang der Strecke laden: Kacheln einmal herunterladen und die ganze Gegend ohne mobile Daten fahren. Praktisch im Ausland, im Wald, im Tal ohne Netz. Die Sprachführung braucht ohnehin keine Verbindung, GPS läuft ohne mobile Daten. Die Offline-Karten sind für die Momente, in denen du hinschauen willst.
+
+<b>Fahrtenbuch und GPX-Export</b>
+- Jede Fahrt wird mit Track, Distanz und Zeit gespeichert
+- GPX-Export für jede Fahrt: das Standardformat, das Fitness-Apps und Portale lesen
+- Ziel unterwegs wechseln oder eine beendete Fahrt fortsetzen
+- Peilmodus: Handy hochhalten, auf der Stelle drehen, stehen bleiben, wenn das Ziel voraus liegt
+- Der Peilung ist egal, ob du fährst oder gehst: Radfahren, Gravel, Wandern
+- Deutsch, Englisch und Russisch, Oberfläche und Stimme
+
+<b>Fünf Fahrten gratis, danach einmal zahlen</b>
+Die ersten fünf Fahrten sind kostenlos und keine Demo, sondern die ganze App. Danach wird Vector einmalig gekauft und gehört dir — den Preis zeigt der Store oben in deiner Währung. Kein Abo, keine Werbung, kein Konto, keine Registrierung. Neues Handy, gleiches Google-Konto, die Freischaltung kommt zurück.
+
+<b>Standort und Datenschutz</b>
+Vector braucht den Standortzugriff, solange eine Fahrt läuft, auch im Hintergrund. Ohne ihn liefert Android keine Standortdaten mehr, sobald das Display dunkel wird, und genau diese Stimme aus der Tasche ist der Grund, warum es Vector gibt. Hochgeladen wird nichts. Wir betreiben keinen eigenen Server, deine Ziele und Tracks bleiben auf dem Handy.
+
+<b>Was Vector nicht ist</b>
+Vector liest keine Straßennamen vor und sagt nicht „in 200 Metern links abbiegen“. Es ist auch kein Werkzeug, um eine Luftlinie zu messen oder zu berechnen: Es sagt dir laufend, wohin diese Linie zeigt, während du dich bewegst. Wer eine fertig berechnete Route will, ist hier falsch.
+
+Ziel setzen, Handy einstecken, den Weg selbst wählen.""",
     },
 }
 
