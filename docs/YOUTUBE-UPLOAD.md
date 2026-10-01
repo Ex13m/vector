@@ -67,9 +67,21 @@ No accounts, no ads, no tracking.
 Or turn it around: drop the target on the spot you started from — the car, the camp, the hut —
 and just wander. Vector keeps telling you how far you have drifted and which way leads back.
 
-Android · free · English / Русский / Deutsch
-Site: https://boisterous-heliotrope-499640.netlify.app/landing.html
+Android · 5 rides free, then a one-time purchase · English / Русский / Deutsch
+
+Get it on Google Play:
+https://play.google.com/store/apps/details?id=cz.konsalting.vektor
+
+Contact: konsaltingprofi@gmail.com
+
+Footage in this film was generated with AI (Seedance 2.0); the app itself
+and its voice guidance are real.
 ```
+
+> **Обновлено 01.10.2026.** Было: «Android · free» и ссылка на лендинг Netlify — текст писался
+> 31.08, когда приложение ещё не вышло в маркет и вести было некуда. После публикации и
+> появления платной версии оба утверждения стали неверными: «free» прямо вводило в
+> заблуждение, а лендинг добавлял лишний шаг перед установкой.
 
 **Теги:** `cycling, bike navigation, bikepacking, MTB, gravel, voice navigation, offline maps,
 compass, Android app, cycling app`
@@ -108,3 +120,22 @@ Location access is used only during an active ride, with a persistent notificati
 2. Ссылку на **демо** вставить в Console → App content → Sensitive permissions
    (текст обоснования — `docs/PLAY-LISTING.md` §3).
 3. Проверить в карточке магазина: обложкой видео служит feature graphic, он уже загружен.
+
+---
+
+## Канал: описание и ссылки (обновлено 01.10.2026)
+
+В описании канала и в разделе «Ссылки» тоже стоял Netlify — первый запрос к API их не
+показал (поле `links` приходит пустым, описание обрезано). Видно только на живой странице
+`youtube.com/@VectorBeacon/about` или в Studio → Настройки канала → Профиль.
+
+Сейчас: ссылка называется **Google Play** и ведёт на
+`play.google.com/store/apps/details?id=cz.konsalting.vektor`. Описание канала переписано под
+поисковые слова той же логикой, что и карточка в маркете: «bike compass», «GPS compass
+navigation», «cycling», «screen off», «offline maps», «GPX», «turn-by-turn» (через отрицание).
+
+**Правка делается только браузером.** Токена YouTube API у проекта нет и не было: для записи
+нужен OAuth-проект и верификация приложения у Google. Studio при этом подвисает — CDP-таймауты
+на вводе и на клике — но текст успевает примениться; проверять результат надо не в редакторе,
+а на публичной странице. **vidIQ перед правкой лучше отключить**, он подставляет свой текст
+в поле описания.
