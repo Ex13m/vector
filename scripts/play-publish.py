@@ -40,7 +40,7 @@ DL = r"C:\Users\User\Downloads"
 # ── Тексты витрины (источник: docs/PLAY-LISTING.md §1) ───────────────────────
 LISTINGS = {
     'en-US': {
-        "title": 'Bike Compass GPS: Vector',
+        "title": 'Bike Compass GPS Nav: Vector',
         "shortDescription": 'Voice compass navigation for cycling. Screen off, offline maps, GPS on.',
         "fullDescription": """Vector is a bike compass with a voice, not a turn-by-turn navigator. Drop a waypoint on the map, lock the phone, put it in your pocket and ride. Every few minutes a voice tells you where the target is, clock-style: "target at 3 o'clock, 8 kilometers", followed by an estimate of the time left.
 
@@ -116,7 +116,7 @@ Vector нужна геолокация во время поездки, в том
 Поставьте цель, уберите телефон в карман и выбирайте дорогу сами.""",
     },
     'de-DE': {
-        "title": 'Luftlinie Kompass: Vector',
+        "title": 'Luftlinie Kompass Navi: Vector',
         "shortDescription": 'Fahrrad-Navigation per Sprache: Luftlinie zum Ziel, Display aus, offline.',
         "fullDescription": """Vector ist ein Fahrrad-Kompass mit Stimme, kein Turn-by-Turn-Navi. Ziel auf der Karte setzen, Handy sperren, in die Tasche stecken, losfahren. Alle paar Minuten sagt eine Stimme nach Uhrzeit, wo das Ziel liegt: „Ziel auf 3 Uhr, 8 Kilometer“, dazu die geschätzte Restzeit.
 
